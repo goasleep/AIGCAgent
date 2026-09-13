@@ -213,5 +213,9 @@ export const dict = {
   "ui.toolErrorCard.failed": "ล้มเหลว",
   "ui.toolErrorCard.copyError": "คัดลอกข้อผิดพลาด",
   "ui.message.duration.seconds": "{{count}} วินาที",
-  "ui.message.duration.minutesSeconds": "{{minutes}} นาที {{seconds}} วินาที",
+  "ui.message.duration.minutesSeconds": "{{minutes}} นาที {{seconds}} วินาที",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

@@ -1,5 +1,6 @@
 import { createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
+import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Button } from "@opencode-ai/ui/button"
 import { ContextMenu } from "@opencode-ai/ui/context-menu"
@@ -75,6 +76,7 @@ const ProjectTile = (props: {
 }): JSX.Element => {
   const notification = useNotification()
   const layout = useLayout()
+  const navigate = useNavigate()
   const unseenCount = createMemo(() =>
     props.dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
   )
@@ -152,16 +154,11 @@ const ProjectTile = (props: {
             <ContextMenu.ItemLabel>{props.language.t("common.edit")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
           <ContextMenu.Item
-            data-action="project-workspaces-toggle"
+            data-action="project-open-media"
             data-project={base64Encode(props.project.worktree)}
-            disabled={props.project.vcs !== "git" && !props.workspacesEnabled(props.project)}
-            onSelect={() => props.toggleProjectWorkspaces(props.project)}
+            onSelect={() => navigate(`/${base64Encode(props.project.worktree)}/media`)}
           >
-            <ContextMenu.ItemLabel>
-              {props.workspacesEnabled(props.project)
-                ? props.language.t("sidebar.workspaces.disable")
-                : props.language.t("sidebar.workspaces.enable")}
-            </ContextMenu.ItemLabel>
+            <ContextMenu.ItemLabel>{props.language.t("media.title")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
           <ContextMenu.Item
             data-action="project-clear-notifications"
@@ -196,15 +193,18 @@ const ProjectPreviewPanel = (props: {
   workspaceSessions: (directory: string) => ReturnType<typeof sortedRootSessions>
   ctx: ProjectSidebarContext
   language: ReturnType<typeof useLanguage>
-}): JSX.Element => (
+}): JSX.Element => {
+  const navigate = useNavigate()
+  return (
   <div class="-m-3 p-2 flex flex-col w-72">
     <div class="px-4 pt-2 pb-1 flex items-center gap-2">
       <div class="text-14-medium text-text-strong truncate grow">{displayName(props.project)}</div>
     </div>
     <div class="px-4 pb-2 text-12-medium text-text-weak">{props.language.t("sidebar.project.recentSessions")}</div>
     <div class="px-2 pb-2 flex flex-col gap-2">
+      {/* Media Studio: workspace branch hidden — always show project sessions (architecture §5.5) */}
       <Show
-        when={props.workspaceEnabled()}
+        when={false}
         fallback={
           <For each={props.projectSessions().slice(0, 2)}>
             {(session) => (
@@ -264,9 +264,20 @@ const ProjectPreviewPanel = (props: {
       >
         {props.language.t("sidebar.project.viewAllSessions")}
       </Button>
+      <Button
+        variant="ghost"
+        class="flex w-full text-left justify-start text-text-base px-2 hover:bg-transparent active:bg-transparent"
+        onClick={() => {
+          props.ctx.onHoverOpenChanged(props.project.worktree, false)
+          navigate(`/${base64Encode(props.project.worktree)}/media`)
+        }}
+      >
+        {props.language.t("media.title")}
+      </Button>
     </div>
-  </div>
-)
+    </div>
+  )
+}
 
 export const SortableProject = (props: {
   project: LocalProject

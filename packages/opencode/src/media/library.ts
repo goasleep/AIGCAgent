@@ -1,0 +1,222 @@
+import { Context, Effect, Layer, Schema } from "effect"
+import path from "path"
+import { copyFile, mkdir, rename, rm, stat, writeFile } from "fs/promises"
+import { and, desc, eq, lt } from "drizzle-orm"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Database } from "@opencode-ai/core/database/database"
+import { MediaAssetTable } from "@opencode-ai/core/media/sql"
+import { ProjectV2 } from "@opencode-ai/core/project"
+import { Identifier } from "@/id/id"
+import { Project } from "@/project/project"
+import { mediaTmpDir, PathError } from "./paths"
+
+export interface Asset {
+  id: string
+  project_id: string
+  path: string
+  kind: "image" | "video"
+  mime: string
+  bytes: number
+  width: number | null
+  height: number | null
+  duration_ms: number | null
+  source: "generate" | "process"
+  model: string | null
+  prompt: string | null
+  params: Record<string, unknown> | null
+  job_id: string | null
+  cost_usd_estimate: number | null
+  time_created: number
+  time_updated: number
+}
+
+export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("MediaLibrary.NotFoundError", {
+  id: Schema.String,
+}) {
+  override get message() {
+    return `媒体产物不存在: ${this.id}`
+  }
+}
+
+export type IngestSource = { type: "file"; path: string } | { type: "dataUrl"; url: string }
+
+export interface IngestInput {
+  /** 项目目录（worktree），产物落在其 .opencode/media/ 下 */
+  directory: string
+  source: IngestSource
+  kind: "image" | "video"
+  source_kind: "generate" | "process"
+  model?: string
+  prompt?: string
+  params?: Record<string, unknown>
+  job_id?: string
+  cost_usd_estimate?: number | null
+  width?: number | null
+  height?: number | null
+  duration_ms?: number | null
+}
+
+export interface ListInput {
+  directory: string
+  kind?: "image" | "video"
+  /** 上一页最后一项的 id（按 time_created 倒序翻页） */
+  cursor?: string
+  limit?: number
+}
+
+// 数据库错误统一暴露为 unknown（上层工具 orDie，HTTP 层走错误中间件）
+export interface Interface {
+  readonly ingest: (input: IngestInput) => Effect.Effect<Asset, unknown>
+  readonly list: (input: ListInput) => Effect.Effect<{ items: Asset[]; next?: string }, unknown>
+  readonly get: (id: string) => Effect.Effect<Asset | undefined, unknown>
+  /** 先删表记录再删磁盘文件：记录先删可重试，反过来会留孤儿 */
+  readonly remove: (id: string) => Effect.Effect<void, unknown>
+  /** 项目目录 + 库内相对路径 → 绝对路径（含越界校验，供 /media/:id/content 使用） */
+  readonly absolute: (directory: string, asset: Asset) => Effect.Effect<string, PathError>
+}
+
+export class Service extends Context.Service<Service, Interface>()("@opencode/Media/Library") {}
+
+const MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mkv": "video/x-matroska",
+  ".mov": "video/quicktime",
+}
+
+function monthDir(directory: string, now = new Date()): string {
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, "0")
+  return path.join(directory, ".opencode", "media", `${yyyy}-${mm}`)
+}
+
+function dataUrlBytes(url: string): { mime: string; buffer: Buffer } {
+  const match = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(url)
+  if (!match || !match[2]) throw new Error("仅支持 base64 data URL")
+  return { mime: match[1]!, buffer: Buffer.from(match[3]!, "base64") }
+}
+
+const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+  const { db } = yield* Database.Service
+  const projects = yield* Project.Service
+
+  const ingest = Effect.fn("Media.Library.ingest")(function* (input: IngestInput) {
+    const { project } = yield* projects.fromDirectory(input.directory)
+    const id = Identifier.ascending("media")
+
+    let ext: string
+    let mime: string
+    let staging: string
+    if (input.source.type === "file") {
+      ext = path.extname(input.source.path).toLowerCase()
+      mime = MIME_BY_EXT[ext]!
+      if (!mime) return yield* Effect.fail(new Error(`不支持的产物扩展名: ${ext}`))
+      staging = input.source.path
+    } else {
+      const parsed = dataUrlBytes(input.source.url)
+      mime = parsed.mime
+      ext = `.${mime.split("/")[1] ?? "bin"}`.replace("jpeg", "jpg")
+      if (!MIME_BY_EXT[ext]) return yield* Effect.fail(new Error(`不支持的产物 MIME: ${mime}`))
+      staging = path.join(mediaTmpDir(input.directory), `${id}${ext}`)
+      yield* Effect.tryPromise(() => mkdir(mediaTmpDir(input.directory), { recursive: true }))
+      yield* Effect.tryPromise(() => writeFile(staging, parsed.buffer))
+    }
+    if (!mime.startsWith(`${input.kind}/`)) {
+      return yield* Effect.fail(new Error(`产物 MIME ${mime} 与 kind=${input.kind} 不符`))
+    }
+
+    const dir = monthDir(input.directory)
+    yield* Effect.tryPromise(() => mkdir(dir, { recursive: true }))
+    const target = path.join(dir, `${id}${ext}`)
+    yield* Effect.tryPromise(async () => {
+      try {
+        await rename(staging, target)
+      } catch {
+        await copyFile(staging, target)
+      }
+    })
+    const bytes = (yield* Effect.tryPromise(() => stat(target))).size
+
+    const row = {
+      id,
+      project_id: project.id,
+      path: path.relative(input.directory, target),
+      kind: input.kind,
+      mime,
+      bytes,
+      width: input.width ?? null,
+      height: input.height ?? null,
+      duration_ms: input.duration_ms ?? null,
+      source: input.source_kind,
+      model: input.model ?? null,
+      prompt: input.prompt ?? null,
+      params: input.params ?? null,
+      job_id: input.job_id ?? null,
+      cost_usd_estimate: input.cost_usd_estimate ?? null,
+      time_created: Date.now(),
+      time_updated: Date.now(),
+    }
+    yield* db.insert(MediaAssetTable).values(row).run()
+    return row as Asset
+  })
+
+  const list = Effect.fn("Media.Library.list")(function* (input: ListInput) {
+    const { project } = yield* projects.fromDirectory(input.directory)
+    const limit = Math.min(input.limit ?? 50, 200)
+    const conditions = [eq(MediaAssetTable.project_id, project.id)]
+    if (input.kind) conditions.push(eq(MediaAssetTable.kind, input.kind))
+    if (input.cursor) {
+      const cursorRow = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, input.cursor)).get()
+      if (cursorRow) conditions.push(lt(MediaAssetTable.time_created, cursorRow.time_created))
+    }
+    const rows = yield* db
+      .select()
+      .from(MediaAssetTable)
+      .where(and(...conditions))
+      .orderBy(desc(MediaAssetTable.time_created))
+      .limit(limit + 1)
+      .all()
+    const items = rows.slice(0, limit) as Asset[]
+    const next = rows.length > limit ? items[items.length - 1]?.id : undefined
+    return { items, ...(next ? { next } : {}) }
+  })
+
+  const get = Effect.fn("Media.Library.get")(function* (id: string) {
+    const row = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, id)).get()
+    return row as Asset | undefined
+  })
+
+  const remove = Effect.fn("Media.Library.remove")(function* (id: string) {
+    const row = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, id)).get()
+    if (!row) return yield* new NotFoundError({ id })
+    // 先删记录再删文件：记录没了文件还在可重试清理；反过来会留孤儿记录
+    yield* db.delete(MediaAssetTable).where(eq(MediaAssetTable.id, id)).run()
+    const project = yield* projects.get(ProjectV2.ID.make(row.project_id))
+    if (project) {
+      yield* Effect.tryPromise(() => rm(path.resolve(project.worktree, row.path), { force: true })).pipe(Effect.ignore)
+    }
+  })
+
+  const absolute = Effect.fn("Media.Library.absolute")(function* (directory: string, asset: Asset) {
+    const resolved = path.resolve(directory, asset.path)
+    const rel = path.relative(directory, resolved)
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {
+      return yield* new PathError({ detail: `媒体产物路径越界: ${asset.path}` })
+    }
+    return resolved
+  })
+
+  return Service.of({ ingest, list, get, remove, absolute })
+  }),
+)
+
+export const node = LayerNode.make({ service: Service, layer, deps: [Database.node, Project.node] })
+
+export * as MediaLibrary from "./library"

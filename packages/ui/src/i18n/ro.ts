@@ -197,5 +197,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(fără răspuns)",
   "ui.question.multiHint": "Selectează toate răspunsurile corecte",
   "ui.question.singleHint": "Selectează un răspuns",
-  "ui.question.custom.placeholder": "Scrie răspunsul...",
+  "ui.question.custom.placeholder": "Scrie răspunsul...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

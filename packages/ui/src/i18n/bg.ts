@@ -193,5 +193,9 @@ export const dict = {
   "ui.question.review.notAnswered": "(без отговор)",
   "ui.question.multiHint": "Изберете всички приложими отговори",
   "ui.question.singleHint": "Изберете един отговор",
-  "ui.question.custom.placeholder": "Въведете вашия отговор...",
+  "ui.question.custom.placeholder": "Въведете вашия отговор...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

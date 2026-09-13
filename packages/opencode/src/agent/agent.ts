@@ -11,6 +11,7 @@ import { ProviderTransform } from "@/provider/transform"
 
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
+import PROMPT_CREATOR from "./prompt/creator.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
@@ -142,6 +143,8 @@ const layer = Layer.effect(
             name: "build",
             description: "The default agent. Executes tools based on configured permissions.",
             options: {},
+            // Media Studio: hidden from the agent switcher — creator is the product-facing default (architecture §5.5)
+            hidden: true,
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
@@ -214,6 +217,33 @@ const layer = Layer.effect(
             prompt: PROMPT_EXPLORE,
             options: {},
             mode: "subagent",
+            native: true,
+          },
+          creator: {
+            name: "creator",
+            description:
+              "AIGC creation agent. Generates and processes images and videos with the media tools. All outputs are saved to the media library automatically.",
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                media_probe: "allow",
+                media_process: "allow",
+                media_generate_image: "allow",
+                media_generate_video: "allow",
+                read: "allow",
+                glob: "allow",
+                grep: "allow",
+                list: "allow",
+                webfetch: "allow",
+                websearch: "allow",
+                question: "allow",
+              }),
+              user,
+            ),
+            prompt: PROMPT_CREATOR,
+            options: {},
+            mode: "primary",
             native: true,
           },
           compaction: {
@@ -319,7 +349,7 @@ const layer = Layer.effect(
             agents,
             values(),
             sortBy(
-              [(x) => (cfg.default_agent ? x.name === cfg.default_agent : x.name === "build"), "desc"],
+              [(x) => (cfg.default_agent ? x.name === cfg.default_agent : x.name === "creator"), "desc"],
               [(x) => x.name, "asc"],
             ),
           )
@@ -334,9 +364,13 @@ const layer = Layer.effect(
             if (agent.hidden === true) throw new Error(`default agent "${c.default_agent}" is hidden`)
             return agent
           }
-          const visible = Object.values(agents).find((a) => a.mode !== "subagent" && a.hidden !== true)
-          if (!visible) throw new Error("no primary visible agent found")
-          return visible
+          // Media Studio: the creator agent is the default unless configured otherwise
+          const visible = Object.values(agents).find(
+            (a) => a.name === "creator" && a.mode !== "subagent" && a.hidden !== true,
+          )
+          const fallback = visible ?? Object.values(agents).find((a) => a.mode !== "subagent" && a.hidden !== true)
+          if (!fallback) throw new Error("no primary visible agent found")
+          return fallback
         })
 
         const defaultAgent = Effect.fnUntraced(function* () {

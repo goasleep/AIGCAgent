@@ -36,6 +36,7 @@ import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { type UiI18n, useI18n } from "@opencode-ai/ui/context/i18n"
 import { BasicTool, GenericTool } from "./basic-tool"
+import { MediaVideo } from "./media-video"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
@@ -1285,10 +1286,22 @@ export function UserMessageDisplay(props: {
                     <Show
                       when={type === "image"}
                       fallback={
-                        <div data-slot="user-message-attachment-file">
-                          <FileIcon node={{ path: name, type: "file" }} />
-                          <span data-slot="user-message-attachment-name">{name}</span>
-                        </div>
+                        <Show
+                          when={type === "video"}
+                          fallback={
+                            <div data-slot="user-message-attachment-file">
+                              <FileIcon node={{ path: name, type: "file" }} />
+                              <span data-slot="user-message-attachment-name">{name}</span>
+                            </div>
+                          }
+                        >
+                          <video
+                            data-slot="user-message-attachment-video"
+                            src={file.url}
+                            controls
+                            preload="metadata"
+                          />
+                        </Show>
                       }
                     >
                       <img data-slot="user-message-attachment-image" src={file.url} alt={name} />
@@ -1460,6 +1473,7 @@ export interface ToolProps {
   sessionID?: string
   output?: string
   status?: string
+  attachments?: FilePart[]
   hideDetails?: boolean
   defaultOpen?: boolean
   open?: boolean
@@ -1564,6 +1578,10 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   })
 
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
+  const attachments = () => {
+    const state = part().state
+    return state.status === "completed" ? state.attachments : undefined
+  }
   const controlledOpen = () => (props.onToolOpenChange ? (props.toolOpen ?? props.defaultOpen) : undefined)
   const handleToolOpenChange = (open: boolean) => props.onToolOpenChange?.(open)
 
@@ -1617,6 +1635,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               // @ts-expect-error
               output={part().state.output}
               status={part().state.status}
+              attachments={attachments()}
               hideDetails={props.hideDetails}
               defaultOpen={props.defaultOpen}
               open={controlledOpen()}
@@ -2638,5 +2657,116 @@ ToolRegistry.register({
     )
 
     return <BasicTool icon="brain" status={props.status} trigger={trigger()} hideDetails />
+  },
+})
+
+function MediaToolAttachments(props: { attachments?: FilePart[] }) {
+  const items = () =>
+    (props.attachments ?? []).filter((a) => a.mime.startsWith("image/") || a.mime.startsWith("video/"))
+  return (
+    <Show when={items().length > 0}>
+      <div data-component="tool-media-attachments">
+        <For each={items()}>
+          {(file) => {
+            const name = file.filename ?? "media"
+            return (
+              <Show
+                when={file.mime.startsWith("video/")}
+                fallback={
+                  <img data-slot="tool-media-image" src={file.url} alt={name} title={name} loading="lazy" />
+                }
+              >
+                <MediaVideo file={file} title={name} />
+              </Show>
+            )
+          }}
+        </For>
+      </div>
+    </Show>
+  )
+}
+
+function mediaToolOutput(props: ToolProps, i18n: ReturnType<typeof useI18n>) {
+  return (
+    <>
+      <Show when={props.output}>
+        <div
+          data-component="tool-output"
+          data-scrollable
+          tabIndex={0}
+          role="region"
+          aria-label={i18n.t("ui.scrollView.ariaLabel")}
+        >
+          <Markdown text={props.output!} />
+        </div>
+      </Show>
+      <MediaToolAttachments attachments={props.attachments} />
+    </>
+  )
+}
+
+ToolRegistry.register({
+  name: "media_generate_image",
+  render(props) {
+    const i18n = useI18n()
+    const prompt = () => (typeof props.input.prompt === "string" ? props.input.prompt : "")
+    return (
+      <BasicTool
+        {...props}
+        icon="photo"
+        trigger={{
+          title: i18n.t("ui.tool.mediaGenerateImage"),
+          subtitle: prompt(),
+          args: props.input.size ? [`size=${props.input.size}`] : [],
+        }}
+      >
+        {mediaToolOutput(props, i18n)}
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "media_generate_video",
+  render(props) {
+    const i18n = useI18n()
+    const prompt = () => (typeof props.input.prompt === "string" ? props.input.prompt : "")
+    return (
+      <BasicTool
+        {...props}
+        icon="video"
+        trigger={{
+          title: i18n.t("ui.tool.mediaGenerateVideo"),
+          subtitle: prompt(),
+          args: props.input.duration ? [`${props.input.duration}s`] : [],
+        }}
+      >
+        {mediaToolOutput(props, i18n)}
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "media_process",
+  render(props) {
+    const i18n = useI18n()
+    const subtitle = () => {
+      const template = typeof props.input.template === "string" ? props.input.template : ""
+      const output = typeof props.input.output === "string" ? getFilename(props.input.output) : ""
+      return [template, output].filter(Boolean).join(" → ")
+    }
+    return (
+      <BasicTool
+        {...props}
+        icon="sliders"
+        trigger={{
+          title: i18n.t("ui.tool.mediaProcess"),
+          subtitle: subtitle(),
+        }}
+      >
+        {mediaToolOutput(props, i18n)}
+      </BasicTool>
+    )
   },
 })

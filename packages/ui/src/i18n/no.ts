@@ -217,5 +217,9 @@ export const dict: Record<Keys, string> = {
   "ui.sessionTurn.diffs.changed.other": "{{count}} endrede filer",
   "ui.sessionTurn.diffs.showAll": "Vis alle",
   "ui.sessionTurn.diffs.showLess": "Vis færre",
-  "ui.sessionTurn.diffs.more": "+{{count}} filer til",
+  "ui.sessionTurn.diffs.more": "+{{count}} filer til",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

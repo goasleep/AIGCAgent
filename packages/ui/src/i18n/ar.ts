@@ -229,5 +229,9 @@ export const dict = {
   "ui.toolErrorCard.failed": "فشل",
   "ui.toolErrorCard.copyError": "نسخ الخطأ",
   "ui.message.duration.seconds": "{{count}}ث",
-  "ui.message.duration.minutesSeconds": "{{minutes}}د {{seconds}}ث",
+  "ui.message.duration.minutesSeconds": "{{minutes}}د {{seconds}}ث",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

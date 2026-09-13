@@ -27,15 +27,22 @@ export const PlanExitTool = Tool.define(
           const instance = yield* InstanceState.context
           const info = yield* session.get(ctx.sessionID)
           const plan = path.relative(instance.worktree, Session.plan(info, instance))
+          // Media Studio: switch back to the agent that was in use before planning instead of hardcoding "build"
+          const messages = yield* session.messages({ sessionID: ctx.sessionID }).pipe(Effect.orDie)
+          const previous = messages.findLast((item) => {
+            if (item.info.role !== "user") return false
+            return Boolean(item.info.model && item.info.agent && item.info.agent !== "plan")
+          })
+          const target = previous && previous.info.role === "user" && previous.info.agent ? previous.info.agent : "creator"
           const answers = yield* question.ask({
             sessionID: ctx.sessionID,
             questions: [
               {
-                question: `Plan at ${plan} is complete. Would you like to switch to the build agent and start implementing?`,
-                header: "Build Agent",
+                question: `Plan at ${plan} is complete. Would you like to switch back to the ${target} agent and start executing?`,
+                header: "Execute Plan",
                 custom: false,
                 options: [
-                  { label: "Yes", description: "Switch to build agent and start implementing the plan" },
+                  { label: "Yes", description: `Switch back to the ${target} agent and start executing the plan` },
                   { label: "No", description: "Stay with plan agent to continue refining the plan" },
                 ],
               },
@@ -45,7 +52,6 @@ export const PlanExitTool = Tool.define(
 
           if (answers[0]?.[0] === "No") yield* new Question.RejectedError()
 
-          const messages = yield* session.messages({ sessionID: ctx.sessionID }).pipe(Effect.orDie)
           const lastUser = messages.findLast((item) => item.info.role === "user" && item.info.model)
           const model =
             lastUser?.info.role === "user" && lastUser.info.model ? lastUser.info.model : yield* provider.defaultModel()
@@ -55,7 +61,7 @@ export const PlanExitTool = Tool.define(
             sessionID: ctx.sessionID,
             role: "user",
             time: { created: Date.now() },
-            agent: "build",
+            agent: target,
             model,
           }
           yield* session.updateMessage(msg)
@@ -64,13 +70,13 @@ export const PlanExitTool = Tool.define(
             messageID: msg.id,
             sessionID: ctx.sessionID,
             type: "text",
-            text: `The plan at ${plan} has been approved, you can now edit files. Execute the plan`,
+            text: `The plan at ${plan} has been approved. Execute the plan`,
             synthetic: true,
           } satisfies SessionV1.TextPart)
 
           return {
-            title: "Switching to build agent",
-            output: "User approved switching to build agent. Wait for further instructions.",
+            title: `Switching to ${target} agent`,
+            output: `User approved switching back to the ${target} agent. Wait for further instructions.`,
             metadata: {},
           }
         }).pipe(Effect.orDie),

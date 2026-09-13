@@ -193,5 +193,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(پاسخ داده نشد)",
   "ui.question.multiHint": "همه پاسخ هایی که اعمال می شوند را انتخاب کنید",
   "ui.question.singleHint": "یک پاسخ را انتخاب کنید",
-  "ui.question.custom.placeholder": "پاسخ خود را تایپ کنید...",
+  "ui.question.custom.placeholder": "پاسخ خود را تایپ کنید...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

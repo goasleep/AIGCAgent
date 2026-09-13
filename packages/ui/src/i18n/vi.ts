@@ -193,5 +193,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(chưa trả lời)",
   "ui.question.multiHint": "Chọn tất cả các câu trả lời phù hợp",
   "ui.question.singleHint": "Chọn một câu trả lời",
-  "ui.question.custom.placeholder": "Nhập câu trả lời của bạn...",
+  "ui.question.custom.placeholder": "Nhập câu trả lời của bạn...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

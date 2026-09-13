@@ -126,7 +126,7 @@ describe("tool.registry", () => {
       const tools = yield* registry.tools({
         providerID: ProviderV2.ID.opencode,
         modelID: ModelV2.ID.make("test"),
-        agent: yield* agents.defaultInfo(),
+        agent: (yield* agents.get("build"))!,
       })
       const execute = tools.find((tool) => tool.id === "execute")
 
@@ -143,7 +143,7 @@ describe("tool.registry", () => {
       const tools = yield* registry.tools({
         providerID: ProviderV2.ID.opencode,
         modelID: ModelV2.ID.make("test"),
-        agent: yield* agents.defaultInfo(),
+        agent: (yield* agents.get("build"))!,
       })
 
       expect(tools.map((tool) => tool.id)).not.toContain("execute")
@@ -337,7 +337,7 @@ describe("tool.registry", () => {
       const promptTools = yield* registry.tools({
         providerID: ProviderV2.ID.opencode,
         modelID: ModelV2.ID.make("test"),
-        agent: yield* agents.defaultInfo(),
+        agent: (yield* agents.get("build"))!,
       })
       const promptTool = promptTools.find((tool) => tool.id === "sql")
       if (!promptTool) throw new Error("custom sql tool was not returned for prompts")
@@ -444,11 +444,10 @@ describe("tool.registry", () => {
       const registry = yield* ToolRegistry.Service
       const loaded = (yield* registry.all()).find((tool) => tool.id === "image")
       if (!loaded) throw new Error("custom image tool was not loaded")
-      const agents = yield* Agent.Service
       const result = yield* loaded.execute({}, {
         sessionID: SessionID.make("ses_test"),
         messageID: MessageID.make("msg_test"),
-        agent: (yield* agents.defaultInfo()).name,
+        agent: "build",
         abort: new AbortController().signal,
         messages: [],
         metadata: () => Effect.void,

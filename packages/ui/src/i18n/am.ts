@@ -192,5 +192,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(አልተመለሰም)",
   "ui.question.multiHint": "የሚመለከተውን ሁሉንም መልሶች ይምረጡ",
   "ui.question.singleHint": "አንድ መልስ ምረጥ",
-  "ui.question.custom.placeholder": "መልስዎን ይተይቡ...",
+  "ui.question.custom.placeholder": "መልስዎን ይተይቡ...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

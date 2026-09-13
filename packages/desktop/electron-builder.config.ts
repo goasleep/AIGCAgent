@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -35,6 +36,13 @@ const channel = (() => {
   return "dev"
 })()
 
+// 当前平台要随包分发的 ffmpeg 目录（fetch-ffmpeg.ts 在 prebuild/predev 阶段拉取，
+// SHA256 硬编码校验）。目录缺失说明前置步骤没跑或校验失败——fail closed 直接报错。
+const ffmpegResourceDir = path.join(packageDir, "resources", "ffmpeg", `${process.platform}-${process.arch}`)
+if (!existsSync(ffmpegResourceDir)) {
+  throw new Error(`ffmpeg resources missing for ${process.platform}-${process.arch}. Run: bun ./scripts/fetch-ffmpeg.ts`)
+}
+
 const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
@@ -70,6 +78,12 @@ const getBase = (appId: string): Configuration => ({
       from: "native/",
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
+    },
+    {
+      // ffmpeg/ffprobe 静态构建（桌面端媒体能力依赖；二进制不进 asar）
+      from: ffmpegResourceDir,
+      to: "ffmpeg",
+      filter: ["ffmpeg*", "ffprobe*", "LICENSE*"],
     },
   ],
   mac: {

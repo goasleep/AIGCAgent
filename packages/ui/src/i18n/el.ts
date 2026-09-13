@@ -193,5 +193,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(δεν απαντήθηκε)",
   "ui.question.multiHint": "Επιλογή όλων των απαντήσεων που ισχύουν",
   "ui.question.singleHint": "Επιλέξτε μία απάντηση",
-  "ui.question.custom.placeholder": "Πληκτρολογήστε την απάντησή σας...",
+  "ui.question.custom.placeholder": "Πληκτρολογήστε την απάντησή σας...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

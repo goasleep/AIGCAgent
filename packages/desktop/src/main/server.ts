@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { app, utilityProcess } from "electron"
@@ -216,7 +217,28 @@ function createSidecarEnv(): Record<string, string> {
   )
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
-  return env
+  return { ...bundledFfmpegEnv(), ...env }
+}
+
+/**
+ * 桌面端随包分发的 ffmpeg/ffprobe：打包后在 process.resourcesPath/ffmpeg，
+ * 开发时在 packages/desktop/resources/ffmpeg/<platform>/（predev 拉取）。
+ * 通过 env 显式传给 opencode server（内核解析优先级 env > config > 随包 > PATH）。
+ * 用户已显式设置 OPENCODE_MEDIA_FFMPEG 时以用户为准（env 展开在后面）。
+ */
+function bundledFfmpegEnv(): Record<string, string> {
+  const ffmpegExe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
+  const ffprobeExe = process.platform === "win32" ? "ffprobe.exe" : "ffprobe"
+  const candidates = [
+    join(process.resourcesPath, "ffmpeg"),
+    join(app.getAppPath(), "resources", "ffmpeg", `${process.platform}-${process.arch}`),
+  ]
+  for (const dir of candidates) {
+    const ffmpeg = join(dir, ffmpegExe)
+    if (!existsSync(ffmpeg)) continue
+    return { OPENCODE_MEDIA_FFMPEG: ffmpeg, OPENCODE_MEDIA_FFPROBE: join(dir, ffprobeExe) }
+  }
+  return {}
 }
 
 function delay(ms: number) {

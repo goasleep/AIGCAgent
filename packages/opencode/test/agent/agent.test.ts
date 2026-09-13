@@ -50,6 +50,7 @@ it.instance("returns default native agents when no config", () =>
     const names = agents.map((a) => a.name)
     expect(names).toContain("build")
     expect(names).toContain("plan")
+    expect(names).toContain("creator")
     expect(names).toContain("general")
     expect(names).toContain("explore")
     expect(names).toContain("compaction")
@@ -132,6 +133,34 @@ it.instance("explore agent asks for external directories and allows whitelisted 
   }),
 )
 
+it.instance("creator agent allows media tools and denies edits", () =>
+  Effect.gen(function* () {
+    const creator = yield* load((svc) => svc.get("creator"))
+    expect(creator).toBeDefined()
+    expect(creator?.mode).toBe("primary")
+    expect(creator?.native).toBe(true)
+    expect(creator?.prompt).toBeDefined()
+    expect(evalPerm(creator, "media_generate_image")).toBe("allow")
+    expect(evalPerm(creator, "media_generate_video")).toBe("allow")
+    expect(evalPerm(creator, "media_process")).toBe("allow")
+    expect(evalPerm(creator, "media_probe")).toBe("allow")
+    expect(evalPerm(creator, "read")).toBe("allow")
+    expect(evalPerm(creator, "question")).toBe("allow")
+    expect(evalPerm(creator, "edit")).toBe("deny")
+    expect(evalPerm(creator, "write")).toBe("deny")
+    expect(evalPerm(creator, "bash")).toBe("deny")
+  }),
+)
+
+it.instance("creator agent is listed by default", () =>
+  Effect.gen(function* () {
+    const agents = yield* load((svc) => svc.list())
+    expect(agents.map((a) => a.name)).toContain("creator")
+    // creator is the default, so it sorts first
+    expect(agents[0].name).toBe("creator")
+  }),
+)
+
 it.instance(
   "reference config does not create subagents",
   () =>
@@ -167,6 +196,15 @@ it.instance("general agent denies todo tools", () =>
     expect(general?.mode).toBe("subagent")
     expect(general?.hidden).toBeUndefined()
     expect(evalPerm(general, "todowrite")).toBe("deny")
+  }),
+)
+
+it.instance("build agent is hidden from the agent switcher", () =>
+  Effect.gen(function* () {
+    const build = yield* load((svc) => svc.get("build"))
+    expect(build).toBeDefined()
+    expect(build?.hidden).toBe(true)
+    expect(build?.mode).toBe("primary")
   }),
 )
 
@@ -646,17 +684,17 @@ it.instance(
   },
 )
 
-it.instance("defaultAgent returns build when no default_agent config", () =>
+it.instance("defaultAgent returns creator when no default_agent config", () =>
   Effect.gen(function* () {
     const agent = yield* load((svc) => svc.defaultAgent())
-    expect(agent).toBe("build")
+    expect(agent).toBe("creator")
   }),
 )
 
-it.instance("defaultInfo returns resolved build agent when no default_agent config", () =>
+it.instance("defaultInfo returns resolved creator agent when no default_agent config", () =>
   Effect.gen(function* () {
     const agent = yield* load((svc) => svc.defaultInfo())
-    expect(agent.name).toBe("build")
+    expect(agent.name).toBe("creator")
     expect(agent.mode).toBe("primary")
   }),
 )
@@ -725,17 +763,17 @@ it.instance(
 )
 
 it.instance(
-  "defaultAgent returns plan when build is disabled and default_agent not set",
+  "defaultAgent falls back to plan when creator is disabled and default_agent not set",
   () =>
     Effect.gen(function* () {
       const agent = yield* load((svc) => svc.defaultAgent())
-      // build is disabled, so it should return plan (next primary agent)
+      // creator is disabled and build is hidden, so it should return plan (next visible primary agent)
       expect(agent).toBe("plan")
     }),
   {
     config: {
       agent: {
-        build: { disable: true },
+        creator: { disable: true },
       },
     },
   },
@@ -749,6 +787,7 @@ it.instance(
       agent: {
         build: { disable: true },
         plan: { disable: true },
+        creator: { disable: true },
       },
     },
   },

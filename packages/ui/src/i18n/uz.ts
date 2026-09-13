@@ -196,5 +196,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(javob berilmagan)",
   "ui.question.multiHint": "Barcha tegishli javoblarni tanlang",
   "ui.question.singleHint": "Bitta javobni tanlang",
-  "ui.question.custom.placeholder": "Javobingizni yozing...",
+  "ui.question.custom.placeholder": "Javobingizni yozing...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

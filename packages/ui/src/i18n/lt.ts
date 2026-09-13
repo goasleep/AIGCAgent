@@ -201,5 +201,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(neatsakyta)",
   "ui.question.multiHint": "Pasirinkite visus tinkamus atsakymus",
   "ui.question.singleHint": "Pasirinkite vieną atsakymą",
-  "ui.question.custom.placeholder": "Įveskite savo atsakymą...",
+  "ui.question.custom.placeholder": "Įveskite savo atsakymą...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

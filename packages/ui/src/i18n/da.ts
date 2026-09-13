@@ -212,5 +212,9 @@ export const dict = {
   "ui.promptInput.send": "Send",
   "ui.promptInput.stop": "Stop",
 
-  "ui.tabs.close": "Luk fane",
+  "ui.tabs.close": "Luk fane",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

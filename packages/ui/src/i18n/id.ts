@@ -215,5 +215,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(belum dijawab)",
   "ui.question.multiHint": "Pilih semua jawaban yang sesuai",
   "ui.question.singleHint": "Pilih satu jawaban",
-  "ui.question.custom.placeholder": "Ketik jawaban Anda...",
+  "ui.question.custom.placeholder": "Ketik jawaban Anda...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

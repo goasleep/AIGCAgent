@@ -197,5 +197,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(nav atbildēts)",
   "ui.question.multiHint": "Izvēlies visas atbilstošās atbildes",
   "ui.question.singleHint": "Izvēlies vienu atbildi",
-  "ui.question.custom.placeholder": "Ieraksti savu atbildi...",
+  "ui.question.custom.placeholder": "Ieraksti savu atbildi...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

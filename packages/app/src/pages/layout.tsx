@@ -2055,20 +2055,6 @@ export default function LegacyLayout(props: ParentProps) {
                           <DropdownMenu.ItemLabel>{language.t("common.edit")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
-                          data-action="project-workspaces-toggle"
-                          data-project={slug()}
-                          disabled={!canToggle()}
-                          onSelect={() => {
-                            toggleProjectWorkspaces(project)
-                          }}
-                        >
-                          <DropdownMenu.ItemLabel>
-                            {workspacesEnabled()
-                              ? language.t("sidebar.workspaces.disable")
-                              : language.t("sidebar.workspaces.enable")}
-                          </DropdownMenu.ItemLabel>
-                        </DropdownMenu.Item>
-                        <DropdownMenu.Item
                           data-action="project-clear-notifications"
                           data-project={slug()}
                           disabled={unseenCount() === 0}
@@ -2097,8 +2083,9 @@ export default function LegacyLayout(props: ParentProps) {
               </div>
 
               <div class="flex-1 min-h-0 flex flex-col">
+                {/* Media Studio: git worktree workspace panel hidden — always show plain session list (architecture §5.5) */}
                 <Show
-                  when={workspacesEnabled()}
+                  when={false}
                   fallback={
                     <>
                       <div class="shrink-0 py-4">

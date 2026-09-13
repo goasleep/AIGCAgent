@@ -198,5 +198,9 @@ export const dict = {
   "ui.question.review.notAnswered": "(није одговорено)",
   "ui.question.multiHint": "Изаберите све одговоре који се примењују",
   "ui.question.singleHint": "Изаберите један одговор",
-  "ui.question.custom.placeholder": "Унесите свој одговор...",
+  "ui.question.custom.placeholder": "Унесите свој одговор...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

@@ -106,7 +106,8 @@ export function SessionSidePanel(props: {
   )
   const open = createMemo(() => reviewOpen() || fileOpen())
   const fileTreeWidth = createMemo(() => Math.max(FILE_TREE_WIDTH_MIN, layout.fileTree.width()))
-  const reviewTab = createMemo(() => isDesktop())
+  // Media Studio: review/diff tab hidden (architecture §5.5) — code kept, entry disabled
+  const reviewTab = createMemo(() => false)
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
     if (reviewOpen()) return "auto"

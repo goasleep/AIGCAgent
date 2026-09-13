@@ -3,5 +3,6 @@ export function hasCustomAgent(items: Array<{ native?: boolean }>) {
 }
 
 export function resolveAgent<T extends { name: string }>(items: T[], name?: string) {
-  return items.find((item) => item.name === name) ?? items.find((item) => item.name === "build") ?? items[0]
+  // Media Studio: creator is the product-facing default; build is hidden (architecture §5.5)
+  return items.find((item) => item.name === name) ?? items.find((item) => item.name === "creator") ?? items[0]
 }

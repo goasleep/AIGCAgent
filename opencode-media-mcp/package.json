@@ -1,0 +1,22 @@
+{
+  "name": "opencode-media-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "opencode-media-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "bun build --target node ./src/index.ts --outdir ./dist --packages external",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test test/",
+    "test:integration": "bun test test/ffmpeg.integration.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^7.0.2"
+  }
+}

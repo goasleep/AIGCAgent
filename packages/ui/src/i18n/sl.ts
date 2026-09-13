@@ -202,5 +202,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(ni odgovorjeno)",
   "ui.question.multiHint": "Izberite vse ustrezne odgovore",
   "ui.question.singleHint": "Izberite en odgovor",
-  "ui.question.custom.placeholder": "Vnesite odgovor ...",
+  "ui.question.custom.placeholder": "Vnesite odgovor ...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

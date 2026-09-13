@@ -193,5 +193,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(ikki svarað)",
   "ui.question.multiHint": "Vel øll svar, sum eru galdandi",
   "ui.question.singleHint": "Vel eitt svar",
-  "ui.question.custom.placeholder": "Skriva títt svar...",
+  "ui.question.custom.placeholder": "Skriva títt svar...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

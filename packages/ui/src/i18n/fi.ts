@@ -193,5 +193,9 @@ export const dict: Record<string, string> = {
   "ui.promptInput.chooseVariant": "Valitse mallivariantti",
   "ui.promptInput.send": "Lähetä",
   "ui.promptInput.stop": "Pysäytä",
-  "ui.tabs.close": "Sulje välilehti",
+  "ui.tabs.close": "Sulje välilehti",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

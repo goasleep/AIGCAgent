@@ -54,6 +54,9 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { McpCatalog } from "@/mcp/catalog"
+import { MediaGenerateImageTool, MediaGenerateVideoTool, MediaProbeTool, MediaProcessTool } from "./media"
+import { MediaFFmpeg } from "@/media/ffmpeg"
+import { MediaLibrary } from "@/media/library"
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
   return (
@@ -114,6 +117,10 @@ const layer = Layer.effect(
     const greptool = yield* GrepTool
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
+    const mediaProbe = yield* MediaProbeTool
+    const mediaProcess = yield* MediaProcessTool
+    const mediaGenerateImage = yield* MediaGenerateImageTool
+    const mediaGenerateVideo = yield* MediaGenerateVideoTool
     const agent = yield* Agent.Service
     const codeMode = flags.experimentalCodeMode ? yield* Effect.promise(() => import("./code-mode")) : undefined
     const codeModeTool = codeMode ? yield* codeMode.CodeModeTool : undefined
@@ -220,6 +227,10 @@ const layer = Layer.effect(
           search: Tool.init(websearch),
           skill: Tool.init(skilltool),
           patch: Tool.init(patchtool),
+          mediaProbe: Tool.init(mediaProbe),
+          mediaProcess: Tool.init(mediaProcess),
+          mediaGenerateImage: Tool.init(mediaGenerateImage),
+          mediaGenerateVideo: Tool.init(mediaGenerateVideo),
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
@@ -243,6 +254,10 @@ const layer = Layer.effect(
             tool.search,
             tool.skill,
             tool.patch,
+            tool.mediaProbe,
+            tool.mediaProcess,
+            tool.mediaGenerateImage,
+            tool.mediaGenerateVideo,
             ...(tool.execute ? [tool.execute] : []),
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
@@ -449,6 +464,8 @@ export const node = LayerNode.make({
     MCP.node,
     Database.node,
     Ripgrep.node,
+    MediaFFmpeg.node,
+    MediaLibrary.node,
   ],
 })
 

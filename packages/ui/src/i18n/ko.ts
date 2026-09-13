@@ -214,5 +214,9 @@ export const dict = {
   "ui.sessionTurn.diffs.changed.other": "변경된 파일: {{count}}개",
   "ui.sessionTurn.diffs.showAll": "모두 표시",
   "ui.sessionTurn.diffs.showLess": "간략히 표시",
-  "ui.sessionTurn.diffs.more": "+{{count}}개 더 보기",
+  "ui.sessionTurn.diffs.more": "+{{count}}개 더 보기",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

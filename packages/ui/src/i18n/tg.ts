@@ -193,5 +193,9 @@ export const dict = {
   "ui.question.review.notAnswered": "(ҷавоб дода нашудааст)",
   "ui.question.multiHint": "Ҳамаи ҷавобҳои мувофиқро интихоб кунед",
   "ui.question.singleHint": "Як ҷавобро интихоб кунед",
-  "ui.question.custom.placeholder": "Ҷавоби худро нависед...",
+  "ui.question.custom.placeholder": "Ҷавоби худро нависед...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

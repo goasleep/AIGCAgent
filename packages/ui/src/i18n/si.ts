@@ -193,5 +193,9 @@ export const dict: Record<string, string> = {
   "ui.question.review.notAnswered": "(පිළිතුරු නොදී)",
   "ui.question.multiHint": "අදාළ සියලු පිළිතුරු තෝරන්න",
   "ui.question.singleHint": "එක් පිළිතුරක් තෝරන්න",
-  "ui.question.custom.placeholder": "ඔබේ පිළිතුර ටයිප් කරන්න...",
+  "ui.question.custom.placeholder": "ඔබේ පිළිතුර ටයිප් කරන්න...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

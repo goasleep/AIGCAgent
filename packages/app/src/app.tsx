@@ -57,7 +57,8 @@ import { SettingsProvider, useSettings } from "@/context/settings"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { WslServersProvider } from "@/wsl/context"
-import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
+import DirectoryLayout, { decodeDirectory, DirectoryDataProvider } from "@/pages/directory-layout"
+import MediaPage from "@/pages/media"
 import LegacyLayout from "@/pages/layout"
 import NewLayout from "@/pages/layout-new"
 import { ErrorPage } from "./pages/error"
@@ -132,6 +133,23 @@ const TargetSessionRoute = () => (
     <TargetSessionRouteContent />
   </TargetServerRoute>
 )
+
+// 媒体库挂在 new layout 下；目录级页面只需目录级 providers，服务器级 providers 由外壳提供。
+const MediaRoute = () => {
+  const params = useParams()
+  const directory = createMemo(() => decodeDirectory(params.dir ?? ""))
+  return (
+    <Show when={directory()} keyed fallback={<Navigate href="/" />}>
+      {(dir) => (
+        <SDKProvider directory={dir}>
+          <DirectoryDataProvider directory={dir}>
+            <MediaPage />
+          </DirectoryDataProvider>
+        </SDKProvider>
+      )}
+    </Show>
+  )
+}
 
 function LegacyTargetSessionRoute() {
   const params = useParams<{ serverKey: string; id: string }>()
@@ -638,6 +656,7 @@ function Routes(props: { serverScoped?: JSX.Element }) {
       <Show when={settings.general.newLayoutDesigns()}>
         <Route path="/" component={NewHome} />
         <Route path="/:dir/session/:id" component={NewLayoutLegacySessionRedirect} />
+        <Route path="/:dir/media" component={MediaRoute} />
         <Route path="/server/:serverKey/session/:id" component={TargetSessionRoute} />
       </Show>
       <Route path="/new-session" component={DraftRoute} />

@@ -1580,3 +1580,20 @@ body:not([data-new-layout]) {
     color: var(--text-weak);
   }
 }
+
+[data-component="tool-media-attachments"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+
+  [data-slot="tool-media-image"],
+  [data-slot="tool-media-video"] {
+    max-height: 320px;
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border-weak-base);
+    background: var(--background-stronger);
+    object-fit: contain;
+  }
+}

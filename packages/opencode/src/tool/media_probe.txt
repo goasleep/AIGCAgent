@@ -1,0 +1,1 @@
+Probe a media file (duration, resolution, bitrate, streams) using ffprobe. The path must be relative to the project directory; absolute paths and parent-directory traversal are rejected.

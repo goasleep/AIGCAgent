@@ -193,5 +193,9 @@ export const dict = {
   "ui.question.review.notAnswered": "(ບໍ່ຕອບ)",
   "ui.question.multiHint": "ເລືອກຄຳຕອບທັງໝົດທີ່ນຳໃຊ້",
   "ui.question.singleHint": "ເລືອກຫນຶ່ງຄໍາຕອບ",
-  "ui.question.custom.placeholder": "ພິມຄຳຕອບຂອງເຈົ້າ...",
+  "ui.question.custom.placeholder": "ພິມຄຳຕອບຂອງເຈົ້າ...",  "ui.tool.mediaGenerateImage": "Generate Image",
+  "ui.tool.mediaGenerateVideo": "Generate Video",
+  "ui.tool.mediaProcess": "Process Media",
+  "ui.fileMedia.kind.video": "video",
+
 }

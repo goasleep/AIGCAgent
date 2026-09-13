@@ -1,0 +1,1 @@
+Generate an image with gpt-image-2 (OpenAI Images API). This is a paid API call — the user is asked for confirmation with a cost estimate before it runs. The result is saved into the project media library and attached to the conversation as an image. Retries are NOT idempotent: re-calling with the same prompt generates and charges again.
