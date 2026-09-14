@@ -6,6 +6,8 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Config } from "@/config/config"
 
+const findOnPath = (name: string) => process.env.PATH?.split(path.delimiter).map((dir) => path.join(dir, name)).find(existsSync)
+
 export class FfmpegNotFoundError extends Schema.TaggedErrorClass<FfmpegNotFoundError>()("Media.FFmpegNotFoundError", {}) {
   override get message() {
     return "未找到 ffmpeg。请安装系统 ffmpeg、配置 media.ffmpeg_path，或通过 OPENCODE_MEDIA_FFMPEG 指定路径（桌面端由安装包自带）"
@@ -75,7 +77,7 @@ function resolveBin(override?: string): string | undefined {
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate
   }
-  return Bun.which("ffmpeg") ?? undefined
+  return findOnPath(exe)
 }
 
 const layer = Layer.effect(
@@ -146,9 +148,9 @@ const layer = Layer.effect(
         let ffprobe: string | undefined
         if (ffmpeg) {
           const candidate = path.join(path.dirname(ffmpeg), path.basename(ffmpeg).replace("ffmpeg", "ffprobe"))
-          ffprobe = existsSync(candidate) ? candidate : (Bun.which("ffprobe") ?? undefined)
+          ffprobe = existsSync(candidate) ? candidate : findOnPath("ffprobe")
         } else {
-          ffprobe = process.env.OPENCODE_MEDIA_FFPROBE ?? Bun.which("ffprobe") ?? undefined
+          ffprobe = process.env.OPENCODE_MEDIA_FFPROBE ?? findOnPath("ffprobe")
         }
         if (!ffprobe) return yield* new FfmpegNotFoundError()
         const args = ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", file]

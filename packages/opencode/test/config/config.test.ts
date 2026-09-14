@@ -435,6 +435,37 @@ it.effect("logs global update diagnostics once without exposing values", () =>
   ),
 )
 
+for (const name of ["opencode.json", "opencode.jsonc"]) {
+  it.live(`preserves saved media credentials after reloading ${name}`, () =>
+    withGlobalConfig(
+      { name, config: { media: { openai_api_key: "test-openai", openai_base_url: "https://image-proxy.example/v1" } } },
+      ({ dir }) =>
+        Effect.gen(function* () {
+          const media = {
+            ark_api_key: "test-ark",
+            dashscope_api_key: "test-dashscope",
+            minimax_api_key: "test-minimax",
+            agnes_api_key: "test-agnes",
+            agnes_base_url: "https://apihub.agnes-ai.com/v1",
+          }
+          const saved = yield* Config.use.updateGlobal({ media })
+          expect(saved.info.media).toMatchObject(media)
+          yield* Config.use.invalidate()
+          expect((yield* Config.use.getGlobal()).media).toMatchObject(media)
+
+          yield* Config.use.updateGlobal({ media: { video_model: "seedance-2-0" } })
+          yield* Config.use.invalidate()
+          const expected = { ...media, openai_api_key: "test-openai", video_model: "seedance-2-0" }
+          expect((yield* Config.use.getGlobal()).media).toEqual({
+            ...expected,
+            openai_base_url: "https://image-proxy.example/v1",
+          })
+          expect(yield* FSUtil.use.readJson(path.join(dir, name))).toMatchObject({ media: expected })
+        }),
+    ),
+  )
+}
+
 const updateFixtures = path.join(import.meta.dir, "fixtures/v2-compat")
 const globalInputs = [...new Bun.Glob("update-global/*-input.{json,jsonc}").scanSync({ cwd: updateFixtures })].sort()
 const projectInputs = [...new Bun.Glob("update-project/*-input.json").scanSync({ cwd: updateFixtures })].sort()

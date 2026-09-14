@@ -9,9 +9,14 @@ export const Info = Schema.Struct({
   video_model: Schema.optional(Schema.String).annotate({
     description: "Default video generation model (default: seedance-2-0)",
   }),
-  openai_api_key: Schema.optional(Schema.String).annotate({
-    description: "API key for OpenAI image generation (falls back to OPENAI_API_KEY env)",
+  openai_base_url: Schema.optional(Schema.String).annotate({
+    description: "Optional OpenAI-compatible base URL for image generation (defaults to https://api.openai.com/v1)",
   }),
+  openai_api_key: Schema.optional(Schema.String).annotate({
+    description: "Dedicated API key for OpenAI image generation; separate from inference credentials",
+  }),
+  agnes_api_key: Schema.optional(Schema.String),
+  agnes_base_url: Schema.optional(Schema.String),
   ark_api_key: Schema.optional(Schema.String).annotate({
     description: "API key for Volcengine Ark video generation (falls back to ARK_API_KEY env)",
   }),
@@ -19,7 +24,8 @@ export const Info = Schema.Struct({
     description: "Volcengine Ark base URL (falls back to ARK_BASE_URL env)",
   }),
   dashscope_api_key: Schema.optional(Schema.String).annotate({
-    description: "API key for Alibaba DashScope video generation, e.g. wan3.0-video (falls back to DASHSCOPE_API_KEY env)",
+    description:
+      "API key for Alibaba DashScope video generation, e.g. wan3.0-video (falls back to DASHSCOPE_API_KEY env)",
   }),
   dashscope_base_url: Schema.optional(Schema.String).annotate({
     description:

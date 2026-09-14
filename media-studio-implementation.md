@@ -374,6 +374,21 @@ export const media_asset = sqliteTable("media_asset", {
 
 1. 生成视频触发权限弹窗（ask），拒绝后 agent 收到结构化拒绝
 2. 会话中生成视频 → 后台任务进度可见 → 完成后视频内联可播、可拖动进度条
+
+### 5.8 媒体任务与成本统计 API
+
+媒体生成仍由 `creator` Agent 编排；结构化 API 作为任务控制面，不替换现有会话入口：
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| `GET` | `/media/tasks` | 列出当前项目实例中的媒体任务 |
+| `GET` | `/media/task?id=<id>` | 查询单个媒体任务状态 |
+| `DELETE` | `/media/task?id=<id>` | 取消运行中的媒体任务 |
+| `GET` | `/media/stats` | 返回素材数量、磁盘占用、累计预估费用及按类型/模型/日期分组统计 |
+
+所有请求继续使用 `directory` 查询参数完成项目路由和权限校验。任务状态统一为
+`queued`、`running`、`completed`、`error`、`cancelled`，共享类型定义位于
+`@opencode-ai/core/media/task`；当前进程内任务由 `BackgroundJob` 提供，重启恢复仍属于后续持久化工作。
 3. 杀掉 server 进程再启动：`media_asset` 记录与磁盘文件一致，无孤儿
 4. Ark 临时 URL 过期后重新打开会话：视频仍可播（证明落盘而非存 URL）
 

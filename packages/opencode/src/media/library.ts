@@ -1,13 +1,15 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import path from "path"
 import { copyFile, mkdir, rename, rm, stat, writeFile } from "fs/promises"
-import { and, desc, eq, lt } from "drizzle-orm"
+import { and, desc, eq, lt, or } from "drizzle-orm"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { MediaAssetTable } from "@opencode-ai/core/media/sql"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { Identifier } from "@/id/id"
 import { Project } from "@/project/project"
+import { InstanceRef } from "@/effect/instance-ref"
+import { MediaPreview } from "./preview"
 import { mediaTmpDir, PathError } from "./paths"
 
 export interface Asset {
@@ -64,10 +66,68 @@ export interface ListInput {
   limit?: number
 }
 
+export interface StatsInput {
+  directory: string
+  from?: number
+  to?: number
+}
+
+export interface StatsBucket {
+  count: number
+  bytes: number
+  cost_usd_estimate: number
+}
+
+export interface Stats {
+  count: number
+  bytes: number
+  cost_usd_estimate: number
+  by_kind: { image: StatsBucket; video: StatsBucket }
+  by_model: Array<{ model: string; count: number; cost_usd_estimate: number }>
+  by_day: Array<{ day: string; count: number; cost_usd_estimate: number }>
+}
+
+export function aggregateStats(rows: readonly Asset[]): Stats {
+  const empty = (): StatsBucket => ({ count: 0, bytes: 0, cost_usd_estimate: 0 })
+  const by_kind = { image: empty(), video: empty() }
+  const models = new Map<string, { count: number; cost_usd_estimate: number }>()
+  const days = new Map<string, { count: number; cost_usd_estimate: number }>()
+  rows.forEach((row) => {
+    const bucket = by_kind[row.kind]
+    bucket.count += 1
+    bucket.bytes += row.bytes
+    bucket.cost_usd_estimate += row.cost_usd_estimate ?? 0
+    if (row.model) {
+      const current = models.get(row.model) ?? { count: 0, cost_usd_estimate: 0 }
+      models.set(row.model, {
+        count: current.count + 1,
+        cost_usd_estimate: current.cost_usd_estimate + (row.cost_usd_estimate ?? 0),
+      })
+    }
+    const day = new Date(row.time_created).toISOString().slice(0, 10)
+    const current = days.get(day) ?? { count: 0, cost_usd_estimate: 0 }
+    days.set(day, {
+      count: current.count + 1,
+      cost_usd_estimate: current.cost_usd_estimate + (row.cost_usd_estimate ?? 0),
+    })
+  })
+  return {
+    count: rows.length,
+    bytes: rows.reduce((total, row) => total + row.bytes, 0),
+    cost_usd_estimate: rows.reduce((total, row) => total + (row.cost_usd_estimate ?? 0), 0),
+    by_kind,
+    by_model: Array.from(models, ([model, value]) => ({ model, ...value })).sort(
+      (a, b) => b.cost_usd_estimate - a.cost_usd_estimate,
+    ),
+    by_day: Array.from(days, ([day, value]) => ({ day, ...value })).sort((a, b) => a.day.localeCompare(b.day)),
+  }
+}
+
 // 数据库错误统一暴露为 unknown（上层工具 orDie，HTTP 层走错误中间件）
 export interface Interface {
   readonly ingest: (input: IngestInput) => Effect.Effect<Asset, unknown>
   readonly list: (input: ListInput) => Effect.Effect<{ items: Asset[]; next?: string }, unknown>
+  readonly stats: (input: StatsInput) => Effect.Effect<Stats, unknown>
   readonly get: (id: string) => Effect.Effect<Asset | undefined, unknown>
   /** 先删表记录再删磁盘文件：记录先删可重试，反过来会留孤儿 */
   readonly remove: (id: string) => Effect.Effect<void, unknown>
@@ -101,119 +161,164 @@ function dataUrlBytes(url: string): { mime: string; buffer: Buffer } {
   return { mime: match[1]!, buffer: Buffer.from(match[3]!, "base64") }
 }
 
+async function sourceBytes(url: string): Promise<{ mime: string; buffer: Buffer }> {
+  if (url.startsWith("data:")) return dataUrlBytes(url)
+  const parsed = new URL(url)
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("媒体 URL 仅支持 http(s) 或 base64 data URL")
+  }
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`下载媒体产物失败: ${response.status}`)
+  const mime = response.headers.get("content-type")?.split(";", 1)[0]?.trim()
+  if (!mime) throw new Error("媒体产物响应缺少 Content-Type")
+  return { mime, buffer: Buffer.from(await response.arrayBuffer()) }
+}
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-  const { db } = yield* Database.Service
-  const projects = yield* Project.Service
+    const { db } = yield* Database.Service
+    const projects = yield* Project.Service
 
-  const ingest = Effect.fn("Media.Library.ingest")(function* (input: IngestInput) {
-    const { project } = yield* projects.fromDirectory(input.directory)
-    const id = Identifier.ascending("media")
+    const projectFor = Effect.fn("Media.Library.projectFor")(function* (directory: string) {
+      const instance = yield* InstanceRef
+      if (instance?.directory === directory) return instance.project
+      return (yield* projects.fromDirectory(directory)).project
+    })
 
-    let ext: string
-    let mime: string
-    let staging: string
-    if (input.source.type === "file") {
-      ext = path.extname(input.source.path).toLowerCase()
-      mime = MIME_BY_EXT[ext]!
-      if (!mime) return yield* Effect.fail(new Error(`不支持的产物扩展名: ${ext}`))
-      staging = input.source.path
-    } else {
-      const parsed = dataUrlBytes(input.source.url)
-      mime = parsed.mime
-      ext = `.${mime.split("/")[1] ?? "bin"}`.replace("jpeg", "jpg")
-      if (!MIME_BY_EXT[ext]) return yield* Effect.fail(new Error(`不支持的产物 MIME: ${mime}`))
-      staging = path.join(mediaTmpDir(input.directory), `${id}${ext}`)
-      yield* Effect.tryPromise(() => mkdir(mediaTmpDir(input.directory), { recursive: true }))
-      yield* Effect.tryPromise(() => writeFile(staging, parsed.buffer))
-    }
-    if (!mime.startsWith(`${input.kind}/`)) {
-      return yield* Effect.fail(new Error(`产物 MIME ${mime} 与 kind=${input.kind} 不符`))
-    }
+    const ingest = Effect.fn("Media.Library.ingest")(function* (input: IngestInput) {
+      const project = yield* projectFor(input.directory)
+      const id = Identifier.ascending("media")
 
-    const dir = monthDir(input.directory)
-    yield* Effect.tryPromise(() => mkdir(dir, { recursive: true }))
-    const target = path.join(dir, `${id}${ext}`)
-    yield* Effect.tryPromise(async () => {
-      try {
-        await rename(staging, target)
-      } catch {
-        await copyFile(staging, target)
+      let ext: string
+      let mime: string
+      let staging: string
+      const source = input.source
+      if (source.type === "file") {
+        ext = path.extname(source.path).toLowerCase()
+        mime = MIME_BY_EXT[ext]!
+        if (!mime) return yield* Effect.fail(new Error(`不支持的产物扩展名: ${ext}`))
+        staging = source.path
+      } else {
+        const parsed = yield* Effect.tryPromise(() => sourceBytes(source.url))
+        mime = parsed.mime
+        ext = `.${mime.split("/")[1] ?? "bin"}`.replace("jpeg", "jpg")
+        if (!MIME_BY_EXT[ext]) return yield* Effect.fail(new Error(`不支持的产物 MIME: ${mime}`))
+        staging = path.join(mediaTmpDir(input.directory), `${id}${ext}`)
+        yield* Effect.tryPromise(() => mkdir(mediaTmpDir(input.directory), { recursive: true }))
+        yield* Effect.tryPromise(() => writeFile(staging, parsed.buffer))
+      }
+      if (!mime.startsWith(`${input.kind}/`)) {
+        return yield* Effect.fail(new Error(`产物 MIME ${mime} 与 kind=${input.kind} 不符`))
+      }
+
+      const dir = monthDir(input.directory)
+      yield* Effect.tryPromise(() => mkdir(dir, { recursive: true }))
+      const target = path.join(dir, `${id}${ext}`)
+      yield* Effect.tryPromise(async () => {
+        try {
+          await rename(staging, target)
+        } catch {
+          await copyFile(staging, target)
+        }
+      })
+      const bytes = (yield* Effect.tryPromise(() => stat(target))).size
+
+      const row = {
+        id,
+        project_id: project.id,
+        path: path.relative(input.directory, target),
+        kind: input.kind,
+        mime,
+        bytes,
+        width: input.width ?? null,
+        height: input.height ?? null,
+        duration_ms: input.duration_ms ?? null,
+        source: input.source_kind,
+        model: input.model ?? null,
+        prompt: input.prompt ?? null,
+        params: input.params ?? null,
+        job_id: input.job_id ?? null,
+        cost_usd_estimate: input.cost_usd_estimate ?? null,
+        time_created: Date.now(),
+        time_updated: Date.now(),
+      }
+      yield* db.insert(MediaAssetTable).values(row).run()
+      return row as Asset
+    })
+
+    const list = Effect.fn("Media.Library.list")(function* (input: ListInput) {
+      const project = yield* projectFor(input.directory)
+      const limit = Number.isInteger(input.limit) ? Math.max(1, Math.min(input.limit!, 200)) : 50
+      const conditions = [eq(MediaAssetTable.project_id, project.id)]
+      if (input.kind) conditions.push(eq(MediaAssetTable.kind, input.kind))
+      if (input.cursor) {
+        const cursorRow = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, input.cursor)).get()
+        if (cursorRow?.project_id === project.id) {
+          conditions.push(
+            or(
+              lt(MediaAssetTable.time_created, cursorRow.time_created),
+              and(eq(MediaAssetTable.time_created, cursorRow.time_created), lt(MediaAssetTable.id, cursorRow.id)),
+            )!,
+          )
+        }
+      }
+      const rows = yield* db
+        .select()
+        .from(MediaAssetTable)
+        .where(and(...conditions))
+        .orderBy(desc(MediaAssetTable.time_created), desc(MediaAssetTable.id))
+        .limit(limit + 1)
+        .all()
+      const items = rows.slice(0, limit) as Asset[]
+      const next = rows.length > limit ? items[items.length - 1]?.id : undefined
+      return { items, ...(next ? { next } : {}) }
+    })
+
+    const stats = Effect.fn("Media.Library.stats")(function* (input: StatsInput) {
+      const project = yield* projectFor(input.directory)
+      const rows = (yield* db
+        .select()
+        .from(MediaAssetTable)
+        .where(eq(MediaAssetTable.project_id, project.id))
+        .all()).filter(
+        (row) =>
+          (input.from === undefined || row.time_created >= input.from) &&
+          (input.to === undefined || row.time_created < input.to),
+      ) as Asset[]
+      return aggregateStats(rows)
+    })
+
+    const get = Effect.fn("Media.Library.get")(function* (id: string) {
+      const row = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, id)).get()
+      return row as Asset | undefined
+    })
+
+    const remove = Effect.fn("Media.Library.remove")(function* (id: string) {
+      const row = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, id)).get()
+      if (!row) return yield* new NotFoundError({ id })
+      // 先删记录再删文件：记录没了文件还在可重试清理；反过来会留孤儿记录
+      yield* db.delete(MediaAssetTable).where(eq(MediaAssetTable.id, id)).run()
+      const project = yield* projects.get(ProjectV2.ID.make(row.project_id))
+      if (project) {
+        const file = path.resolve(project.worktree, row.path)
+        yield* Effect.tryPromise(() => rm(file, { force: true })).pipe(Effect.ignore)
+        yield* Effect.tryPromise(() => rm(MediaPreview.directory(file), { recursive: true, force: true })).pipe(
+          Effect.ignore,
+        )
       }
     })
-    const bytes = (yield* Effect.tryPromise(() => stat(target))).size
 
-    const row = {
-      id,
-      project_id: project.id,
-      path: path.relative(input.directory, target),
-      kind: input.kind,
-      mime,
-      bytes,
-      width: input.width ?? null,
-      height: input.height ?? null,
-      duration_ms: input.duration_ms ?? null,
-      source: input.source_kind,
-      model: input.model ?? null,
-      prompt: input.prompt ?? null,
-      params: input.params ?? null,
-      job_id: input.job_id ?? null,
-      cost_usd_estimate: input.cost_usd_estimate ?? null,
-      time_created: Date.now(),
-      time_updated: Date.now(),
-    }
-    yield* db.insert(MediaAssetTable).values(row).run()
-    return row as Asset
-  })
+    const absolute = Effect.fn("Media.Library.absolute")(function* (directory: string, asset: Asset) {
+      const resolved = path.resolve(directory, asset.path)
+      const rel = path.relative(directory, resolved)
+      if (rel.startsWith("..") || path.isAbsolute(rel)) {
+        return yield* new PathError({ detail: `媒体产物路径越界: ${asset.path}` })
+      }
+      return resolved
+    })
 
-  const list = Effect.fn("Media.Library.list")(function* (input: ListInput) {
-    const { project } = yield* projects.fromDirectory(input.directory)
-    const limit = Math.min(input.limit ?? 50, 200)
-    const conditions = [eq(MediaAssetTable.project_id, project.id)]
-    if (input.kind) conditions.push(eq(MediaAssetTable.kind, input.kind))
-    if (input.cursor) {
-      const cursorRow = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, input.cursor)).get()
-      if (cursorRow) conditions.push(lt(MediaAssetTable.time_created, cursorRow.time_created))
-    }
-    const rows = yield* db
-      .select()
-      .from(MediaAssetTable)
-      .where(and(...conditions))
-      .orderBy(desc(MediaAssetTable.time_created))
-      .limit(limit + 1)
-      .all()
-    const items = rows.slice(0, limit) as Asset[]
-    const next = rows.length > limit ? items[items.length - 1]?.id : undefined
-    return { items, ...(next ? { next } : {}) }
-  })
-
-  const get = Effect.fn("Media.Library.get")(function* (id: string) {
-    const row = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, id)).get()
-    return row as Asset | undefined
-  })
-
-  const remove = Effect.fn("Media.Library.remove")(function* (id: string) {
-    const row = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, id)).get()
-    if (!row) return yield* new NotFoundError({ id })
-    // 先删记录再删文件：记录没了文件还在可重试清理；反过来会留孤儿记录
-    yield* db.delete(MediaAssetTable).where(eq(MediaAssetTable.id, id)).run()
-    const project = yield* projects.get(ProjectV2.ID.make(row.project_id))
-    if (project) {
-      yield* Effect.tryPromise(() => rm(path.resolve(project.worktree, row.path), { force: true })).pipe(Effect.ignore)
-    }
-  })
-
-  const absolute = Effect.fn("Media.Library.absolute")(function* (directory: string, asset: Asset) {
-    const resolved = path.resolve(directory, asset.path)
-    const rel = path.relative(directory, resolved)
-    if (rel.startsWith("..") || path.isAbsolute(rel)) {
-      return yield* new PathError({ detail: `媒体产物路径越界: ${asset.path}` })
-    }
-    return resolved
-  })
-
-  return Service.of({ ingest, list, get, remove, absolute })
+    return Service.of({ ingest, list, stats, get, remove, absolute })
   }),
 )
 

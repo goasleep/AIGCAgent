@@ -12,6 +12,9 @@ export interface ImageRequest {
   prompt: string
   size: "1024x1024" | "1536x1024" | "1024x1536" | "auto"
   quality: "low" | "medium" | "high"
+  /** Optional source image and mask as data URLs for image editing. */
+  image?: string
+  mask?: string
 }
 
 export interface VideoRequest {
@@ -54,12 +57,15 @@ export function estimateImageCost(req: ImageRequest): number | null {
 
 const jsonHeaders = (key: string) => ({ "content-type": "application/json", authorization: `Bearer ${key}` })
 
+function imageJobUrl(jobId: string): string {
+  return jobId.startsWith("inline:") ? `data:image/png;base64,${jobId.slice("inline:".length)}` : jobId
+}
+
 /** fetch/解析失败统一映射为 MediaProviderError，保持 Interface 错误类型封闭 */
 function tryFetch<A>(fn: () => Promise<A>): Effect.Effect<A, MediaProviderError> {
   return Effect.tryPromise({
     try: fn,
-    catch: (error) =>
-      new MediaProviderError({ detail: error instanceof Error ? error.message : String(error) }),
+    catch: (error) => new MediaProviderError({ detail: error instanceof Error ? error.message : String(error) }),
   })
 }
 
@@ -77,28 +83,62 @@ async function awaitText(res: Response): Promise<string> {
 }
 
 export interface OpenAIOptions {
-  /** 缺省时从 OPENAI_API_KEY 环境变量读取 */
+  /** 图片生成专用密钥；不读取对话推理链路的 OPENAI_API_KEY */
   apiKey?: string
+  /** OpenAI-compatible base URL；缺省 https://api.openai.com/v1 */
+  baseUrl?: string
+}
+
+export function providerBaseURL(value: string | undefined, fallback: string) {
+  return (value?.trim() || fallback).replace(/\/+$/, "")
 }
 
 export function openai(opts: OpenAIOptions = {}): MediaProvider {
+  const base = () =>
+    providerBaseURL(opts.baseUrl, "https://api.openai.com/v1").replace(/\/images\/(generations|edits)$/, "")
+  const dataUrlBlob = (value: string, fallbackMime: string) => {
+    const match = /^data:([^;,]+)?;base64,(.+)$/s.exec(value)
+    if (!match) return undefined
+    return new Blob([Buffer.from(match[2], "base64")], { type: match[1] ?? fallbackMime })
+  }
   return {
     id: "gpt-image-2",
     submitImage: (req) =>
       Effect.gen(function* () {
-        const key = yield* requireKey(opts.apiKey ?? process.env.OPENAI_API_KEY, "config media.openai_api_key 或 OPENAI_API_KEY")
-        const body = {
-          model: "gpt-image-2",
-          prompt: req.prompt,
-          size: req.size === "auto" ? undefined : req.size,
-          quality: req.quality,
-          response_format: "b64_json",
+        const key = yield* requireKey(opts.apiKey, "config media.openai_api_key")
+        const editing = req.image !== undefined
+        if (!editing && req.mask !== undefined) {
+          return yield* new MediaProviderError({ detail: "图片编辑必须同时提供 image 和 mask" })
+        }
+        const body = editing ? new FormData() : undefined
+        if (body) {
+          const source = req.image
+          if (!source) return yield* new MediaProviderError({ detail: "图片编辑必须提供 image" })
+          const image = dataUrlBlob(source, "image/png")
+          if (!image) return yield* new MediaProviderError({ detail: "图片编辑的 image 必须是有效的 data URL" })
+          body.set("model", "gpt-image-2")
+          body.set("prompt", req.prompt)
+          body.set("size", req.size === "auto" ? "1024x1024" : req.size)
+          body.set("quality", req.quality)
+          body.set("image", image, "input.png")
+          if (req.mask !== undefined) {
+            const mask = dataUrlBlob(req.mask, "image/png")
+            if (!mask) return yield* new MediaProviderError({ detail: "图片编辑的 mask 必须是有效的 data URL" })
+            body.set("mask", mask, "mask.png")
+          }
         }
         const res = yield* tryFetch(() =>
-          fetch("https://api.openai.com/v1/images/generations", {
+          fetch(`${base()}/images/${editing ? "edits" : "generations"}`, {
             method: "POST",
-            headers: jsonHeaders(key),
-            body: JSON.stringify(body),
+            headers: editing ? { authorization: `Bearer ${key}` } : jsonHeaders(key),
+            body:
+              body ??
+              JSON.stringify({
+                model: "gpt-image-2",
+                prompt: req.prompt,
+                size: req.size === "auto" ? undefined : req.size,
+                quality: req.quality,
+              }),
           }),
         )
         if (!res.ok) {
@@ -106,15 +146,160 @@ export function openai(opts: OpenAIOptions = {}): MediaProvider {
           return yield* new MediaProviderError({ detail: `OpenAI images API ${res.status}: ${text.slice(0, 500)}` })
         }
         const data = (yield* tryFetch(() => res.json())) as {
-          data?: Array<{ b64_json?: string }>
+          data?: Array<{ b64_json?: string; url?: string }>
         }
         // 图片用同步内联语义：b64 直接内联为 data URL 交给 Library 落盘
         const b64 = data.data?.[0]?.b64_json
-        if (!b64) return yield* new MediaProviderError({ detail: "OpenAI 响应缺少 b64_json" })
-        return { jobId: `inline:${b64}` }
+        if (b64) return { jobId: `inline:${b64}` }
+        const url = data.data?.[0]?.url
+        if (url) return { jobId: url }
+        return yield* new MediaProviderError({ detail: "OpenAI 响应缺少 b64_json 或图片 URL" })
       }),
     submitVideo: () => Effect.fail(new MediaProviderError({ detail: "gpt-image-2 不支持视频生成" })),
-    poll: (jobId) => Effect.succeed({ state: "succeeded", url: jobId }),
+    poll: (jobId) => Effect.succeed({ state: "succeeded", url: imageJobUrl(jobId) }),
+    cancel: () => Effect.void,
+  }
+}
+
+export interface AgnesOptions {
+  /** 缺省时从 AGNES_API_KEY 环境变量读取 */
+  apiKey?: string
+  /** 缺省 https://apihub.agnes-ai.com/v1 */
+  baseUrl?: string
+  /** 图片缺省 agnes-image-2.1-flash，视频统一使用 agnes-video-v2.0 */
+  model?: string
+}
+
+/** Agnes 图片生成兼容 OpenAI Images API，但默认返回远程 URL。 */
+export function agnes(opts: AgnesOptions = {}): MediaProvider {
+  const base = () =>
+    providerBaseURL(opts.baseUrl, process.env.AGNES_BASE_URL?.trim() || "https://apihub.agnes-ai.com/v1")
+  const model = () => {
+    if (opts.model?.startsWith("agnes-video")) return "agnes-video-v2.0"
+    if (opts.model === "agnes-image" || opts.model === "agnes-image-2.0" || opts.model === "agnes-image-2.0-flash") {
+      return "agnes-image-2.1-flash"
+    }
+    return opts.model ?? "agnes-image-2.1-flash"
+  }
+  const isVideo = () => model() === "agnes-video-v2.0"
+  const videoRoot = () => base().replace(/\/v1$/, "")
+  return {
+    id: model(),
+    submitImage: (req) =>
+      Effect.gen(function* () {
+        if (isVideo()) return yield* new MediaProviderError({ detail: `${model()} 不支持图片生成` })
+        if (req.image || req.mask) return yield* new MediaProviderError({ detail: "Agnes 当前不支持图片编辑" })
+        const key = yield* requireKey(
+          opts.apiKey ?? process.env.AGNES_API_KEY,
+          "config media.agnes_api_key 或 AGNES_API_KEY",
+        )
+        const res = yield* tryFetch(() =>
+          fetch(`${base()}/images/generations`, {
+            method: "POST",
+            headers: jsonHeaders(key),
+            body: JSON.stringify({
+              model: model(),
+              prompt: req.prompt,
+              n: 1,
+              size: req.size === "auto" ? "1024x1024" : req.size,
+            }),
+          }),
+        )
+        if (!res.ok) {
+          const text = yield* Effect.promise(() => awaitText(res))
+          return yield* new MediaProviderError({ detail: `Agnes images API ${res.status}: ${text.slice(0, 500)}` })
+        }
+        const data = (yield* tryFetch(() => res.json())) as {
+          data?: Array<{ url?: string; b64_json?: string }>
+        }
+        const image = data.data?.[0]
+        if (image?.url) return { jobId: image.url }
+        if (image?.b64_json) return { jobId: `inline:${image.b64_json}` }
+        return yield* new MediaProviderError({ detail: "Agnes 响应缺少图片 URL" })
+      }),
+    submitVideo: (req) =>
+      Effect.gen(function* () {
+        if (!isVideo()) return yield* new MediaProviderError({ detail: `${model()} 不支持视频生成` })
+        const key = yield* requireKey(
+          opts.apiKey ?? process.env.AGNES_API_KEY,
+          "config media.agnes_api_key 或 AGNES_API_KEY",
+        )
+        const dimensions =
+          req.ratio === "9:16"
+            ? { width: 768, height: 1365 }
+            : req.ratio === "1:1"
+              ? { width: 1024, height: 1024 }
+              : { width: 1152, height: 648 }
+        const numFrames = 8 * Math.max(1, Math.round((req.duration * 24 - 1) / 8)) + 1
+        if ([req.first_frame, req.last_frame].some((value) => value && !/^https?:\/\//.test(value))) {
+          return yield* new MediaProviderError({
+            detail:
+              "Agnes 视频参考帧需要 HTTP(S) 图片地址；当前接口不支持本地或 base64 参考帧，请选择支持参考帧的媒体模型。",
+          })
+        }
+        const images = [req.first_frame, req.last_frame].filter(
+          (value): value is string => typeof value === "string" && /^https?:\/\//.test(value),
+        )
+        const res = yield* tryFetch(() =>
+          fetch(`${base()}/videos`, {
+            method: "POST",
+            headers: jsonHeaders(key),
+            body: JSON.stringify({
+              model: model(),
+              prompt: req.prompt,
+              ...dimensions,
+              num_frames: numFrames,
+              frame_rate: 24,
+              ...(images.length === 1
+                ? { image: images[0] }
+                : images.length > 1
+                  ? { extra_body: { image: images } }
+                  : {}),
+            }),
+          }),
+        )
+        if (!res.ok) {
+          const text = yield* Effect.promise(() => awaitText(res))
+          return yield* new MediaProviderError({ detail: `Agnes videos API ${res.status}: ${text.slice(0, 500)}` })
+        }
+        const body = (yield* tryFetch(() => res.json())) as { video_id?: string; task_id?: string; id?: string }
+        const jobId = body.video_id ?? body.task_id ?? body.id
+        if (!jobId) return yield* new MediaProviderError({ detail: "Agnes 响应缺少 video_id" })
+        return { jobId }
+      }),
+    poll: (jobId) =>
+      Effect.gen(function* () {
+        if (!isVideo()) return { state: "succeeded" as const, url: imageJobUrl(jobId) }
+        const key = yield* requireKey(
+          opts.apiKey ?? process.env.AGNES_API_KEY,
+          "config media.agnes_api_key 或 AGNES_API_KEY",
+        )
+        const query = new URLSearchParams({ video_id: jobId, model_name: model() })
+        const res = yield* tryFetch(() => fetch(`${videoRoot()}/agnesapi?${query}`, { headers: jsonHeaders(key) }))
+        if (!res.ok) {
+          const text = yield* Effect.promise(() => awaitText(res))
+          return yield* new MediaProviderError({ detail: `Agnes 视频轮询 ${res.status}: ${text.slice(0, 500)}` })
+        }
+        const body = (yield* tryFetch(() => res.json())) as {
+          status?: string
+          progress?: number
+          url?: string
+          video_url?: string
+          error?: string | { message?: string }
+        }
+        if (body.status === "completed" || body.status === "succeeded") {
+          const url = body.url ?? body.video_url
+          if (!url) return yield* new MediaProviderError({ detail: "Agnes 视频任务成功但缺少 URL" })
+          return { state: "succeeded" as const, url }
+        }
+        if (body.status === "failed" || body.status === "cancelled") {
+          return {
+            state: "failed" as const,
+            error: typeof body.error === "string" ? body.error : (body.error?.message ?? body.status),
+          }
+        }
+        return { state: "running" as const, progress: body.progress }
+      }),
     cancel: () => Effect.void,
   }
 }
@@ -129,7 +314,8 @@ export interface ArkOptions {
 }
 
 export function ark(opts: ArkOptions = {}): MediaProvider {
-  const arkBase = () => opts.baseUrl ?? process.env.ARK_BASE_URL ?? "https://ark.cn-beijing.volces.com/api/v3"
+  const arkBase = () =>
+    providerBaseURL(opts.baseUrl, process.env.ARK_BASE_URL?.trim() || "https://ark.cn-beijing.volces.com/api/v3")
   const model = () => opts.model ?? "seedance-2-0"
   const taskUrl = (jobId: string) => `${arkBase()}/contents/generations/tasks/${jobId}`
   return {
@@ -140,9 +326,7 @@ export function ark(opts: ArkOptions = {}): MediaProvider {
         const key = yield* requireKey(opts.apiKey ?? process.env.ARK_API_KEY, "config media.ark_api_key 或 ARK_API_KEY")
         // seedance 首尾帧：image_url.role 标记 first_frame / last_frame，URL 与 base64 data URL 均可
         const frames = [
-          req.first_frame
-            ? { type: "image_url", image_url: { url: req.first_frame, role: "first_frame" } }
-            : undefined,
+          req.first_frame ? { type: "image_url", image_url: { url: req.first_frame, role: "first_frame" } } : undefined,
           req.last_frame ? { type: "image_url", image_url: { url: req.last_frame, role: "last_frame" } } : undefined,
         ].filter((item) => item !== undefined)
         const res = yield* tryFetch(() =>
@@ -193,9 +377,7 @@ export function ark(opts: ArkOptions = {}): MediaProvider {
     cancel: (jobId) =>
       Effect.gen(function* () {
         const key = yield* requireKey(opts.apiKey ?? process.env.ARK_API_KEY, "config media.ark_api_key 或 ARK_API_KEY")
-        const res = yield* tryFetch(() =>
-          fetch(taskUrl(jobId), { method: "DELETE", headers: jsonHeaders(key) }),
-        )
+        const res = yield* tryFetch(() => fetch(taskUrl(jobId), { method: "DELETE", headers: jsonHeaders(key) }))
         if (!res.ok && res.status !== 404) {
           const text = yield* Effect.promise(() => awaitText(res))
           return yield* new MediaProviderError({ detail: `Ark 取消任务 ${res.status}: ${text.slice(0, 500)}` })
@@ -206,6 +388,7 @@ export function ark(opts: ArkOptions = {}): MediaProvider {
 
 export interface ProviderAuth {
   openai?: OpenAIOptions
+  agnes?: AgnesOptions
   ark?: ArkOptions
   dashscope?: DashScopeOptions
   minimax?: MiniMaxOptions
@@ -223,9 +406,10 @@ export interface DashScopeOptions {
 /** 阿里百炼 DashScope 异步任务制（万相 Wan 系）。Wan3 接入点见 ADR/文档；取消接口未公开，cancel 为 no-op。 */
 export function dashscope(opts: DashScopeOptions = {}): MediaProvider {
   const base = () =>
-    (opts.baseUrl ?? process.env.DASHSCOPE_BASE_URL ?? "https://dashscope.aliyuncs.com/api/v1").replace(/\/+$/, "")
+    providerBaseURL(opts.baseUrl, process.env.DASHSCOPE_BASE_URL?.trim() || "https://dashscope.aliyuncs.com/api/v1")
   const model = () => opts.model ?? "wan3.0-video"
-  const keyOf = () => requireKey(opts.apiKey ?? process.env.DASHSCOPE_API_KEY, "config media.dashscope_api_key 或 DASHSCOPE_API_KEY")
+  const keyOf = () =>
+    requireKey(opts.apiKey ?? process.env.DASHSCOPE_API_KEY, "config media.dashscope_api_key 或 DASHSCOPE_API_KEY")
   return {
     id: model(),
     submitImage: () => Effect.fail(new MediaProviderError({ detail: `${model()} 不支持图片生成` })),
@@ -233,7 +417,9 @@ export function dashscope(opts: DashScopeOptions = {}): MediaProvider {
       Effect.gen(function* () {
         const key = yield* keyOf()
         if (req.first_frame || req.last_frame) {
-          return yield* new MediaProviderError({ detail: `${model()} 暂不支持首尾帧参考图，请改用 seedance 或 MiniMax` })
+          return yield* new MediaProviderError({
+            detail: `${model()} 暂不支持首尾帧参考图，请改用 seedance 或 MiniMax`,
+          })
         }
         const res = yield* tryFetch(() =>
           fetch(`${base()}/services/aigc/video-generation/video-synthesis`, {
@@ -292,9 +478,10 @@ export interface MiniMaxOptions {
 
 /** MiniMax Hailuo 视频 V2 任务制（H3 系，4–15s，768P/2K）。取消接口未公开，cancel 为 no-op。 */
 export function minimax(opts: MiniMaxOptions = {}): MediaProvider {
-  const base = () => (opts.baseUrl ?? process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io").replace(/\/+$/, "")
+  const base = () => providerBaseURL(opts.baseUrl, process.env.MINIMAX_BASE_URL?.trim() || "https://api.minimax.io")
   const model = () => opts.model ?? "MiniMax-H3"
-  const keyOf = () => requireKey(opts.apiKey ?? process.env.MINIMAX_API_KEY, "config media.minimax_api_key 或 MINIMAX_API_KEY")
+  const keyOf = () =>
+    requireKey(opts.apiKey ?? process.env.MINIMAX_API_KEY, "config media.minimax_api_key 或 MINIMAX_API_KEY")
   return {
     id: model(),
     submitImage: () => Effect.fail(new MediaProviderError({ detail: `${model()} 不支持图片生成` })),
@@ -331,7 +518,9 @@ export function minimax(opts: MiniMaxOptions = {}): MediaProvider {
     poll: (jobId) =>
       Effect.gen(function* () {
         const key = yield* keyOf()
-        const res = yield* tryFetch(() => fetch(`${base()}/v2/query/video_generation/${jobId}`, { headers: jsonHeaders(key) }))
+        const res = yield* tryFetch(() =>
+          fetch(`${base()}/v2/query/video_generation/${jobId}`, { headers: jsonHeaders(key) }),
+        )
         if (!res.ok) {
           const text = yield* Effect.promise(() => awaitText(res))
           return yield* new MediaProviderError({ detail: `MiniMax 轮询 ${res.status}: ${text.slice(0, 500)}` })
@@ -357,19 +546,37 @@ export function minimax(opts: MiniMaxOptions = {}): MediaProvider {
 export function resolveProvider(
   model: string | undefined,
   auth: ProviderAuth = {},
+  kind: "image" | "video" = "image",
 ): Effect.Effect<MediaProvider, MediaProviderError> {
-  if (!model || model === "gpt-image-2") return Effect.succeed(openai(auth.openai))
-  if (model.startsWith("seedance")) return Effect.succeed(ark({ ...auth.ark, model }))
+  if (!model) {
+    if (auth.agnes?.apiKey) return Effect.succeed(agnes(auth.agnes))
+    return Effect.succeed(openai(auth.openai))
+  }
+  if (model === "gpt-image-2") {
+    return Effect.succeed(openai(auth.openai))
+  }
+  if (model === "agnes")
+    return Effect.succeed(
+      agnes({ ...auth.agnes, model: kind === "video" ? "agnes-video-v2.0" : "agnes-image-2.1-flash" }),
+    )
+  if (model.startsWith("agnes-image")) return Effect.succeed(agnes({ ...auth.agnes, model }))
+  if (model.startsWith("agnes-video")) return Effect.succeed(agnes({ ...auth.agnes, model }))
+  if (model.startsWith("seedance")) {
+    if (!auth.ark?.apiKey && auth.agnes?.apiKey)
+      return Effect.succeed(agnes({ ...auth.agnes, model: "agnes-video-v2.0" }))
+    return Effect.succeed(ark({ ...auth.ark, model }))
+  }
   if (model.startsWith("wan")) return Effect.succeed(dashscope({ ...auth.dashscope, model }))
+  if (model.toLowerCase() === "h3") return Effect.succeed(minimax({ ...auth.minimax, model: "MiniMax-H3" }))
   if (/^(minimax|hailuo)/i.test(model)) return Effect.succeed(minimax({ ...auth.minimax, model }))
   return Effect.fail(
     new MediaProviderError({
-      detail: `不支持的媒体模型「${model}」（支持：gpt-image-2 生图；seedance* 走方舟；wan* 走 DashScope；MiniMax-H3/hailuo* 走 MiniMax）`,
+      detail: `不支持的媒体模型「${model}」（支持：gpt-image-2/agnes-image* 生图；seedance* 走方舟；agnes-video* 视频；wan* 走 DashScope；MiniMax-H3/hailuo* 走 MiniMax）`,
     }),
   )
 }
 
-/** 轮询直到终态：5s 起步指数退避至 15s，总长上限 15min；远端失败不重试（审核拒绝直接透传） */
+/** 立即检查终态；未完成时从 5s 指数退避至 15s，总长上限 15min。 */
 export function pollUntilDone(
   provider: MediaProvider,
   jobId: string,
@@ -379,8 +586,6 @@ export function pollUntilDone(
     const deadline = Date.now() + 15 * 60 * 1000
     let intervalMs = 5_000
     for (;;) {
-      yield* Effect.sleep(intervalMs)
-      intervalMs = Math.min(Math.round(intervalMs * 1.5), 15_000)
       const status = yield* provider.poll(jobId)
       if (onTick) yield* onTick(status)
       if (status.state === "succeeded") return status
@@ -390,6 +595,8 @@ export function pollUntilDone(
           detail: `轮询超时 15min（job_id=${jobId}，任务可能仍在跑，可凭 job_id 对账）`,
         })
       }
+      yield* Effect.sleep(intervalMs)
+      intervalMs = Math.min(Math.round(intervalMs * 1.5), 15_000)
     }
   })
 }

@@ -389,7 +389,9 @@ const layer = Layer.effect(
             }
             const rawOutput = toolResultOutput(value)
             const normalized = yield* Effect.forEach(rawOutput.attachments ?? [], (attachment) =>
-              attachment.mime.startsWith("image/")
+              attachment.mime.startsWith("image/") &&
+              !attachment.url.startsWith("/media/content") &&
+              !attachment.url.startsWith("/file/content")
                 ? image.normalize(attachment).pipe(
                     Effect.catchIf(
                       (error) => error instanceof Image.ResizerUnavailableError,

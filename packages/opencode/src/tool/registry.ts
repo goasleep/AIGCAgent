@@ -57,6 +57,7 @@ import { McpCatalog } from "@/mcp/catalog"
 import { MediaGenerateImageTool, MediaGenerateVideoTool, MediaProbeTool, MediaProcessTool } from "./media"
 import { MediaFFmpeg } from "@/media/ffmpeg"
 import { MediaLibrary } from "@/media/library"
+import { MediaPreview } from "@/media/preview"
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
   return (
@@ -466,6 +467,7 @@ export const node = LayerNode.make({
     Ripgrep.node,
     MediaFFmpeg.node,
     MediaLibrary.node,
+    MediaPreview.node,
   ],
 })
 

@@ -63,6 +63,7 @@ import { ProjectCopy } from "@opencode-ai/core/project/copy"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
 import { MediaFFmpeg } from "@/media/ffmpeg"
 import { MediaLibrary } from "@/media/library"
+import { MediaPreview } from "@/media/preview"
 import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionV2 } from "@opencode-ai/core/session"
@@ -110,7 +111,7 @@ import { schemaErrorLayer as v2SchemaErrorLayer } from "@opencode-ai/server/midd
 import { workspaceHandlers } from "./handlers/workspace"
 import { instanceContextLayer } from "./middleware/instance-context"
 import { workspaceRoutingLayer } from "./middleware/workspace-routing"
-import { mediaRoute } from "./media"
+import { MediaApi, mediaHandlers } from "./media"
 import { disposeMiddleware } from "./lifecycle"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { compressionLayer } from "./middleware/compression"
@@ -194,7 +195,10 @@ const docRoute = HttpRouter.use((router) => router.add("GET", "/doc", () => Effe
   Layer.provide(authOnlyRouterLayer),
 )
 
-const mediaHttpRoute = mediaRoute.pipe(Layer.provide(authOnlyRouterLayer))
+const mediaHttpRoute = HttpApiBuilder.layer(MediaApi).pipe(
+  Layer.provide(mediaHandlers),
+  Layer.provide([httpApiAuthLayer, workspaceRoutingLive, instanceContextLayer]),
+)
 
 const uiRoute = HttpRouter.use((router) =>
   Effect.gen(function* () {
@@ -272,6 +276,7 @@ const app = LayerNode.group([
   ProjectCopy.node,
   PtyTicket.node,
   MediaLibrary.node,
+  MediaPreview.node,
   MediaFFmpeg.node,
 ])
 
@@ -287,8 +292,8 @@ export function createRoutes(
     instanceRoutes,
     serverRoutes,
     docRoute,
-    mediaHttpRoute,
     uiRoute,
+    mediaHttpRoute,
   ).pipe(
     Layer.provide([
       errorLayer,
