@@ -5,27 +5,18 @@ import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { authTokenFromCredentials } from "@/utils/server"
+import { readMediaResponse } from "@/utils/media-response"
+import { mediaContentURL } from "@/utils/media-url"
 import { legacySessionHref } from "@/utils/session-route"
+import { createMediaLibrary, type MediaKindFilter } from "@/utils/media-library"
 
-export type MediaKindFilter = "all" | "image" | "video"
+export type { MediaKindFilter } from "@/utils/media-library"
 
-type MediaAsset = {
-  id: string
-  path: string
-  kind: "image" | "video"
-  mime: string
+type MediaStats = {
+  count: number
   bytes: number
-  width: number | null
-  height: number | null
-  duration_ms: number | null
-  source: "generate" | "process"
-  model: string | null
-  prompt: string | null
-  cost_usd_estimate: number | null
-  time_created: number
+  cost_usd_estimate: number
 }
-
-const PAGE_SIZE = 60
 
 // 图片官方单价（与内核 media/provider.ts 保持一致），仅作生成前估算
 const IMAGE_COST_USD: Record<string, number> = {
@@ -53,32 +44,56 @@ export default function MediaPage() {
     }
   })
 
-  const contentUrl = (id: string) =>
-    `${sdk().url}/media/content?directory=${encodeURIComponent(directory())}&id=${encodeURIComponent(id)}`
+  const contentUrl = (id: string, preview?: "thumbnail") =>
+    mediaContentURL({
+      url: sdk().url,
+      directory: directory(),
+      id,
+      username: server.current?.http.username,
+      password: server.current?.http.password,
+      preview,
+    })
 
   const [kind, setKind] = createSignal<MediaKindFilter>("all")
-  const [items, setItems] = createSignal<MediaAsset[]>([])
-  const [next, setNext] = createSignal<string | undefined>()
   const [selected, setSelected] = createSignal<Set<string>>(new Set())
   const [showGenerate, setShowGenerate] = createSignal(false)
   const [notice, setNotice] = createSignal<string | undefined>()
 
-  const load = async (cursor?: string) => {
-    const query = new URLSearchParams({ directory: directory(), limit: String(PAGE_SIZE) })
-    if (kind() !== "all") query.set("kind", kind())
-    if (cursor) query.set("cursor", cursor)
-    const res = await fetch(`${sdk().url}/media?${query}`, { headers: headers() })
-    if (!res.ok) throw new Error(`media list ${res.status}`)
-    const body = (await res.json()) as { items: MediaAsset[]; next?: string }
-    return body
-  }
-
-  const [resource, { refetch }] = createResource(kind, async () => {
-    const body = await load()
-    setItems(body.items)
-    setNext(body.next)
-    setSelected(new Set<string>())
-    return body
+  const library = createMediaLibrary(() => ({
+    url: sdk().url.replace(/\/+$/, ""),
+    directory: directory(),
+    kind: kind(),
+    authorization: headers().Authorization,
+  }))
+  const source = library.source
+  const items = library.items
+  const next = library.next
+  const lifecycle = { active: true }
+  onCleanup(() => {
+    lifecycle.active = false
+  })
+  createEffect(
+    on(source, () => {
+      setSelected(new Set<string>())
+      setNotice(undefined)
+    }),
+  )
+  // Filters do not change project totals.
+  const statsSource = createMemo(
+    () => ({ url: source().url, directory: source().directory, authorization: source().authorization }),
+    undefined,
+    {
+      equals: (a, b) => a.url === b.url && a.directory === b.directory && a.authorization === b.authorization,
+    },
+  )
+  const [stats, { refetch: refetchStats }] = createResource(statsSource, async (snapshot) => {
+    if (!snapshot.directory) return undefined
+    const query = new URLSearchParams({ directory: snapshot.directory })
+    const res = await fetch(`${snapshot.url}/media/stats?${query}`, {
+      headers: snapshot.authorization ? { Authorization: snapshot.authorization } : {},
+    })
+    if (!res.ok) throw new Error(`media stats ${res.status}`)
+    return { source: snapshot, data: await readMediaResponse<MediaStats>(res, "stats") }
   })
 
   // 生成发生在会话页；从会话跳回本页会重新挂载并刷新，但停留在本页时
@@ -86,20 +101,13 @@ export default function MediaPage() {
   createEffect(
     on(kind, () => {
       const handler = () => {
-        if (!resource.loading) void refetch()
+        void library.refetch()
+        if (!stats.loading) void refetchStats()
       }
       window.addEventListener("focus", handler)
       onCleanup(() => window.removeEventListener("focus", handler))
     }),
   )
-
-  const loadMore = async () => {
-    const cursor = next()
-    if (!cursor) return
-    const body = await load(cursor)
-    setItems((prev) => [...prev, ...body.items.filter((item) => !prev.some((p) => p.id === item.id))])
-    setNext(body.next)
-  }
 
   const toggle = (id: string) => {
     const nextSet = new Set(selected())
@@ -112,14 +120,20 @@ export default function MediaPage() {
     const ids = [...selected()]
     if (ids.length === 0) return
     if (!window.confirm(t("media.delete.confirm", { count: String(ids.length) }))) return
+    const snapshot = source()
     const failed: string[] = []
     for (const id of ids) {
-      const query = new URLSearchParams({ directory: directory(), id })
-      const res = await fetch(`${sdk().url}/media/asset?${query}`, { method: "DELETE", headers: headers() })
-      if (!res.ok) failed.push(id)
+      const query = new URLSearchParams({ directory: snapshot.directory, id })
+      const res = await fetch(`${snapshot.url}/media/asset?${query}`, {
+        method: "DELETE",
+        headers: snapshot.authorization ? { Authorization: snapshot.authorization } : {},
+      }).catch(() => undefined)
+      if (!res?.ok) failed.push(id)
     }
+    if (!lifecycle.active || snapshot !== source()) return
+    await Promise.allSettled([library.refetch(true), refetchStats()])
     setSelected(new Set(failed))
-    await refetch()
+    if (failed.length) setNotice(t("media.load.error"))
   }
 
   /** 新建 creator 会话并把指令发进去，然后跳转过去看流式生成过程 */
@@ -173,6 +187,16 @@ export default function MediaPage() {
           </For>
         </div>
         <div class="flex-1" />
+        <Show when={!stats.error}>
+          <Show when={stats()?.source === statsSource() ? stats()?.data : undefined}>
+            {(value) => (
+              <div class="flex items-center gap-2 text-12-regular text-text-weak">
+                <span>{t("media.stats.assets", { count: String(value().count) })}</span>
+                <span>{t("media.stats.cost", { cost: `$${value().cost_usd_estimate.toFixed(3)}` })}</span>
+              </div>
+            )}
+          </Show>
+        </Show>
         <Show when={selected().size > 0}>
           <span class="text-13-regular text-text-weak">{t("media.selected", { count: String(selected().size) })}</span>
           <button
@@ -203,9 +227,7 @@ export default function MediaPage() {
         <GeneratePanel
           onSubmit={(text) => {
             setShowGenerate(false)
-            void sendToSession(text).catch((error) =>
-              setNotice(error instanceof Error ? error.message : String(error)),
-            )
+            void sendToSession(text).catch((error) => setNotice(error instanceof Error ? error.message : String(error)))
           }}
         />
       </Show>
@@ -215,14 +237,32 @@ export default function MediaPage() {
       </Show>
 
       <div class="flex-1 min-h-0 overflow-y-auto p-4">
+        <Show when={library.error() && items().length > 0}>
+          <div class="py-2 text-13-regular text-text-weak" role="status">
+            {t("media.load.error")}
+          </div>
+        </Show>
         <Show
-          when={!resource.error}
+          when={!library.error() || items().length > 0}
           fallback={<div class="flex min-h-40 items-center justify-center text-text-weak">{t("media.load.error")}</div>}
         >
           <Show
             when={items().length > 0}
             fallback={
-              <Show when={!resource.loading} fallback={<div class="py-20 text-center text-text-weak">{t("common.loading")}</div>}>
+              <Show
+                when={!library.loading()}
+                fallback={
+                  <div
+                    aria-busy="true"
+                    aria-label={t("common.loading")}
+                    class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+                  >
+                    <For each={[0, 1, 2, 3, 4, 5]}>
+                      {() => <div class="h-48 rounded-xl bg-background-stronger animate-pulse" />}
+                    </For>
+                  </div>
+                }
+              >
                 <div class="flex min-h-40 items-center justify-center text-text-weak">{t("media.empty")}</div>
               </Show>
             }
@@ -230,30 +270,55 @@ export default function MediaPage() {
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
               <For each={items()}>
                 {(asset) => (
-                  <button
-                    type="button"
+                  <div
                     class="group relative overflow-hidden rounded-xl border text-left transition-shadow hover:shadow-md"
                     classList={{
                       "border-text-strong ring-2 ring-text-strong/40": selected().has(asset.id),
                       "border-border-weak-base": !selected().has(asset.id),
                     }}
                     title={asset.prompt ?? asset.path}
-                    onClick={() => toggle(asset.id)}
                   >
-                    <div class="flex h-36 items-center justify-center overflow-hidden bg-background-stronger">
+                    <div
+                      class="relative flex h-36 cursor-pointer items-center justify-center overflow-hidden bg-background-stronger"
+                      onClick={() => toggle(asset.id)}
+                    >
                       <Show
                         when={asset.kind === "video"}
                         fallback={
                           <img
-                            src={contentUrl(asset.id)}
+                            src={contentUrl(asset.id, "thumbnail")}
                             alt={asset.path}
                             loading="lazy"
+                            decoding="async"
+                            onError={(event) => {
+                              if (event.currentTarget.src === contentUrl(asset.id)) return
+                              event.currentTarget.src = contentUrl(asset.id)
+                            }}
                             class="size-full object-cover"
                           />
                         }
                       >
-                        <video src={contentUrl(asset.id)} preload="metadata" controls class="size-full object-contain" />
+                        <video
+                          src={contentUrl(asset.id)}
+                          poster={contentUrl(asset.id, "thumbnail")}
+                          preload="none"
+                          controls
+                          class="size-full object-contain"
+                          onClick={(event) => event.stopPropagation()}
+                        />
                       </Show>
+                      <button
+                        type="button"
+                        class="absolute left-2 top-2 flex size-6 items-center justify-center rounded-full border border-white/60 bg-black/50 text-12-medium text-white"
+                        aria-pressed={selected().has(asset.id)}
+                        aria-label={asset.path}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          toggle(asset.id)
+                        }}
+                      >
+                        {selected().has(asset.id) ? "✓" : "＋"}
+                      </button>
                     </div>
                     <div class="flex flex-col gap-0.5 px-2.5 py-2">
                       <span class="truncate text-12-medium text-text-strong">{asset.path.split("/").pop()}</span>
@@ -262,7 +327,7 @@ export default function MediaPage() {
                         <Show when={asset.duration_ms}> · {formatDuration(asset.duration_ms!)}</Show>
                       </span>
                     </div>
-                  </button>
+                  </div>
                 )}
               </For>
             </div>
@@ -271,7 +336,8 @@ export default function MediaPage() {
                 <button
                   type="button"
                   class="rounded-lg border border-border-weak-base px-4 py-2 text-13-regular text-text-base hover:bg-background-stronger"
-                  onClick={() => void loadMore()}
+                  disabled={library.more() || library.loading()}
+                  onClick={() => void library.loadMore()}
                 >
                   {t("media.load.more")}
                 </button>
@@ -342,7 +408,11 @@ function GeneratePanel(props: { onSubmit: (text: string) => void }) {
             <>
               <label class="flex items-center gap-2 text-13-regular text-text-weak">
                 {t("media.generate.duration")}
-                <select class={selectClass} value={duration()} onChange={(e) => setDuration(Number(e.currentTarget.value))}>
+                <select
+                  class={selectClass}
+                  value={duration()}
+                  onChange={(e) => setDuration(Number(e.currentTarget.value))}
+                >
                   <For each={[4, 5, 8, 10]}>{(d) => <option value={d}>{d}s</option>}</For>
                 </select>
               </label>
@@ -376,7 +446,11 @@ function GeneratePanel(props: { onSubmit: (text: string) => void }) {
             </select>
           </label>
           <Show when={estimate()}>
-            {(cost) => <span class="text-13-regular text-text-weak">{t("media.generate.estimate", { cost: `$${cost().toFixed(3)}` })}</span>}
+            {(cost) => (
+              <span class="text-13-regular text-text-weak">
+                {t("media.generate.estimate", { cost: `$${cost().toFixed(3)}` })}
+              </span>
+            )}
           </Show>
         </Show>
         <div class="flex-1" />
