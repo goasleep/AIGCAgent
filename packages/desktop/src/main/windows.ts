@@ -21,6 +21,11 @@ const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
 const rendererProtocol = "oc"
 const rendererHost = "renderer"
+// The main process changes its working directory to the user's home directory
+// during startup. Electron's default relaunch reuses relative app arguments
+// (for example `.`), so remember the directory used to launch the app and
+// restore it while scheduling a relaunch.
+const launchWorkingDirectory = process.cwd()
 const clipboardWritePermission = "clipboard-sanitized-write"
 const notificationPermission = "notifications"
 const rendererPermissions = new Set([clipboardWritePermission, notificationPermission])
@@ -47,7 +52,7 @@ protocol.registerSchemesAsPrivileged([
 let backgroundColor: string | undefined
 let relaunchHandler = () => {
   setAppQuitting()
-  app.relaunch()
+  relaunchApp()
   app.exit(0)
 }
 const titlebarThemes = new WeakMap<BrowserWindow, Partial<TitlebarTheme>>()
@@ -67,6 +72,16 @@ const minZoomLevel = 0.2
 
 export function setRelaunchHandler(handler: () => void) {
   relaunchHandler = handler
+}
+
+export function relaunchApp() {
+  const currentWorkingDirectory = process.cwd()
+  try {
+    process.chdir(launchWorkingDirectory)
+    app.relaunch({ execPath: process.execPath, args: process.argv.slice(1) })
+  } finally {
+    if (currentWorkingDirectory !== launchWorkingDirectory) process.chdir(currentWorkingDirectory)
+  }
 }
 
 export function setAppQuitting(quitting = true) {

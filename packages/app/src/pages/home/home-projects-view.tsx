@@ -1,4 +1,5 @@
 import { type Accessor, createMemo, For, type JSX, onCleanup, Show, splitProps } from "solid-js"
+import { useNavigate } from "@solidjs/router"
 import { createStore } from "solid-js/store"
 import { DragDropProvider, PointerSensor } from "@dnd-kit/solid"
 import { isSortable, useSortable } from "@dnd-kit/solid/sortable"
@@ -6,6 +7,7 @@ import { AutoScroller, Feedback, PointerActivationConstraints } from "@dnd-kit/d
 import { RestrictToVerticalAxis } from "@dnd-kit/abstract/modifiers"
 import { RestrictToElement } from "@dnd-kit/dom/modifiers"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { ProjectAvatar } from "@opencode-ai/ui/v2/project-avatar-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
@@ -455,6 +457,7 @@ function HomeProjectRow(
     },
 ) {
   const platform = usePlatform()
+  const navigate = useNavigate()
   const serverUnreachable = () => props.serverHealth(props.server)?.healthy === false
   const sortable = useSortable({
     get id() {
@@ -547,6 +550,9 @@ function HomeProjectRow(
             <MenuV2.Content>
               <MenuV2.Item onSelect={() => props.onOpenProjectNewSession(props.server, props.project.worktree)}>
                 {props.language.t("command.session.new")}
+              </MenuV2.Item>
+              <MenuV2.Item onSelect={() => navigate(`/${base64Encode(props.project.worktree)}/media`)}>
+                {props.language.t("media.title")}
               </MenuV2.Item>
               <MenuV2.Item onSelect={() => props.onEditProject(props.server, props.project)}>
                 {props.language.t("dialog.project.edit.title")}

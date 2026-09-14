@@ -37,6 +37,7 @@ import {
   getLastFocusedWindow,
   registerRendererProtocol,
   setRelaunchHandler,
+  relaunchApp,
   setAppQuitting,
   setBackgroundColor,
   setDockIcon,
@@ -171,7 +172,7 @@ const main = Effect.gen(function* () {
   const relaunch = () => {
     setAppQuitting()
     void stopSidecars().finally(() => {
-      app.relaunch()
+      relaunchApp()
       app.quit()
     })
   }

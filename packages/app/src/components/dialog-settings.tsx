@@ -10,6 +10,7 @@ import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
 import { SettingsServers } from "./settings-servers"
+import { SettingsMedia } from "./settings-media"
 
 export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
   const language = useLanguage()
@@ -63,6 +64,10 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="media">
+                      <Icon name="video" />
+                      {language.t("settings.media.title")}
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -87,6 +92,9 @@ export const DialogSettings: Component<{ defaultValue?: string }> = (props) => {
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
+        </Tabs.Content>
+        <Tabs.Content value="media" class="no-scrollbar">
+          <SettingsMedia />
         </Tabs.Content>
       </Tabs>
     </Dialog>

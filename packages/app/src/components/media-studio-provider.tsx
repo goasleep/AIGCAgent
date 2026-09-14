@@ -3,6 +3,7 @@ import { MediaStudioProvider, type MediaRegenerateRequest } from "@opencode-ai/s
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { usePrompt } from "@/context/prompt"
+import { isServerContentURL, mediaContentURL } from "@/utils/media-url"
 import { authTokenFromCredentials } from "@/utils/server"
 
 /**
@@ -23,7 +24,41 @@ export function SessionMediaStudioProvider(props: ParentProps) {
   }
 
   const contentUrl = (assetID: string) =>
-    `${sdk().url}/media/content?directory=${encodeURIComponent(sdk().directory)}&id=${encodeURIComponent(assetID)}`
+    mediaContentURL({
+      url: sdk().url,
+      directory: sdk().directory,
+      id: assetID,
+      username: server.current?.http.username,
+      password: server.current?.http.password,
+    })
+
+  const resolveUrl = (url: string) => {
+    if (!url.startsWith("/media/content") && !url.startsWith("/file/content")) return url
+    return `${sdk().url}${url}`
+  }
+
+  const loadUrl = async (url: string) => {
+    const resolved = resolveUrl(url)
+    if (isServerContentURL(resolved, sdk().url, "file")) {
+      const response = await fetch(resolved, { headers: headers() })
+      if (!response.ok) throw new Error(`file content request failed: ${response.status}`)
+      const body = (await response.json()) as { type?: string; content?: string; encoding?: string; mimeType?: string }
+      if (body.type !== "binary" || body.encoding !== "base64" || typeof body.content !== "string") {
+        throw new Error("file content response is not binary")
+      }
+      const binary = Uint8Array.from(atob(body.content), (char) => char.charCodeAt(0))
+      return URL.createObjectURL(new Blob([binary], { type: body.mimeType ?? "application/octet-stream" }))
+    }
+    if (!isServerContentURL(resolved, sdk().url, "media")) return resolved
+    const parsed = new URL(resolved)
+    return mediaContentURL({
+      url: sdk().url,
+      directory: parsed.searchParams.get("directory") ?? sdk().directory,
+      id: parsed.searchParams.get("id") ?? "",
+      username: server.current?.http.username,
+      password: server.current?.http.password,
+    })
+  }
 
   const resolveAsset = async (assetID: string) => {
     const query = new URLSearchParams({ directory: sdk().directory, id: assetID })
@@ -47,7 +82,13 @@ export function SessionMediaStudioProvider(props: ParentProps) {
   }
 
   return (
-    <MediaStudioProvider contentUrl={contentUrl} resolveAsset={resolveAsset} regenerate={regenerate}>
+    <MediaStudioProvider
+      contentUrl={contentUrl}
+      resolveUrl={resolveUrl}
+      loadUrl={loadUrl}
+      resolveAsset={resolveAsset}
+      regenerate={regenerate}
+    >
       {props.children}
     </MediaStudioProvider>
   )

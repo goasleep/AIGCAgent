@@ -37,6 +37,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { type UiI18n, useI18n } from "@opencode-ai/ui/context/i18n"
 import { BasicTool, GenericTool } from "./basic-tool"
 import { MediaVideo } from "./media-video"
+import { useMediaStudio } from "../context/media-studio"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { Collapsible } from "@opencode-ai/ui/collapsible"
@@ -1295,12 +1296,7 @@ export function UserMessageDisplay(props: {
                             </div>
                           }
                         >
-                          <video
-                            data-slot="user-message-attachment-video"
-                            src={file.url}
-                            controls
-                            preload="metadata"
-                          />
+                          <video data-slot="user-message-attachment-video" src={file.url} controls preload="metadata" />
                         </Show>
                       }
                     >
@@ -2660,6 +2656,27 @@ ToolRegistry.register({
   },
 })
 
+function MediaToolImage(props: { file: FilePart; name: string }) {
+  const studio = useMediaStudio()
+  const fallback = () => studio.resolveUrl?.(props.file.url) ?? props.file.url
+  const [src, setSrc] = createSignal(studio.loadUrl ? undefined : fallback())
+  let objectUrl: string | undefined
+  onMount(() => {
+    if (!studio.loadUrl) return
+    void studio
+      .loadUrl(props.file.url)
+      .then((value) => {
+        objectUrl = value.startsWith("blob:") ? value : undefined
+        setSrc(value)
+      })
+      .catch(() => setSrc(fallback()))
+  })
+  onCleanup(() => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl)
+  })
+  return <img data-slot="tool-media-image" src={src()} alt={props.name} title={props.name} loading="lazy" />
+}
+
 function MediaToolAttachments(props: { attachments?: FilePart[] }) {
   const items = () =>
     (props.attachments ?? []).filter((a) => a.mime.startsWith("image/") || a.mime.startsWith("video/"))
@@ -2673,7 +2690,7 @@ function MediaToolAttachments(props: { attachments?: FilePart[] }) {
               <Show
                 when={file.mime.startsWith("video/")}
                 fallback={
-                  <img data-slot="tool-media-image" src={file.url} alt={name} title={name} loading="lazy" />
+                  <MediaToolImage file={file} name={name} />
                 }
               >
                 <MediaVideo file={file} title={name} />
@@ -2714,6 +2731,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         icon="photo"
+        defaultOpen={props.defaultOpen ?? true}
         trigger={{
           title: i18n.t("ui.tool.mediaGenerateImage"),
           subtitle: prompt(),
@@ -2735,6 +2753,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         icon="video"
+        defaultOpen={props.defaultOpen ?? true}
         trigger={{
           title: i18n.t("ui.tool.mediaGenerateVideo"),
           subtitle: prompt(),
@@ -2760,6 +2779,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         icon="sliders"
+        defaultOpen={props.defaultOpen ?? true}
         trigger={{
           title: i18n.t("ui.tool.mediaProcess"),
           subtitle: subtitle(),

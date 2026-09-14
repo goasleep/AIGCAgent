@@ -1,11 +1,19 @@
 import type { FilePart } from "@opencode-ai/sdk/v2"
-import { createSignal, Show } from "solid-js"
+import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { useI18n } from "@opencode-ai/ui/context/i18n"
 import { useMediaStudio } from "../context/media-studio"
 import "./media-video.css"
 
-// 工具附件 url 形如 /media/<assetID>/content（见 packages/opencode/src/tool/media.ts contentUrl）
-const ASSET_URL = /^\/media\/([^/]+)\/content$/
+// 工具附件 URL 统一为 /media/content?directory=...&id=...，目录参数用于项目归属校验。
+function assetID(url: string) {
+  try {
+    const parsed = new URL(url, "http://opencode.local")
+    if (parsed.pathname !== "/media/content") return undefined
+    return parsed.searchParams.get("id") ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** 最小选段长度（秒），避免两个手柄重叠 */
 const MIN_RANGE = 0.1
@@ -20,14 +28,37 @@ export function MediaVideo(props: { file: FilePart; title: string }) {
   const i18n = useI18n()
   const studio = useMediaStudio()
 
-  const assetID = () => ASSET_URL.exec(props.file.url)?.[1]
+  const id = () => assetID(props.file.url)
   const src = () => {
-    const id = assetID()
-    if (id && studio.contentUrl) return studio.contentUrl(id)
+    const asset = id()
+    if (asset && studio.contentUrl) return studio.contentUrl(asset)
     return props.file.url
   }
+  const [loadedSrc, setLoadedSrc] = createSignal(studio.loadUrl ? undefined : src())
+  createEffect(() => {
+    const url = props.file.url
+    const fallback = src()
+    if (!studio.loadUrl) {
+      setLoadedSrc(fallback)
+      return
+    }
+    const load = { active: true, objectUrl: undefined as string | undefined }
+    setLoadedSrc(undefined)
+    void studio.loadUrl(url).then((value) => {
+      if (!load.active) {
+        if (value.startsWith("blob:")) URL.revokeObjectURL(value)
+        return
+      }
+      load.objectUrl = value.startsWith("blob:") ? value : undefined
+      setLoadedSrc(value)
+    }).catch(() => { if (load.active) setLoadedSrc(fallback) })
+    onCleanup(() => {
+      load.active = false
+      if (load.objectUrl) URL.revokeObjectURL(load.objectUrl)
+    })
+  })
   // 只有媒体库资产 + app 侧提供了重生成入口时才展示选段面板
-  const actionable = () => !!assetID() && !!studio.regenerate
+  const actionable = () => !!id() && !!studio.regenerate
 
   const [open, setOpen] = createSignal(false)
   const [duration, setDuration] = createSignal(0)
@@ -85,24 +116,26 @@ export function MediaVideo(props: { file: FilePart; title: string }) {
   }
 
   const onTimeUpdate = () => {
-    if (!open() || !video || !video.paused) return
+    if (!open() || !video || video.paused) return
     if (video.currentTime >= end()) video.pause()
   }
 
   const submit = async () => {
-    const id = assetID()
-    if (!id || !studio.regenerate) return
+    const assetID = id()
+    if (!assetID || !studio.regenerate) return
     setBusy(true)
     setFailed(false)
     try {
-      const asset = studio.resolveAsset ? await studio.resolveAsset(id) : undefined
+      const asset = studio.resolveAsset ? await studio.resolveAsset(assetID) : undefined
       if (!asset) {
         setFailed(true)
         return
       }
-      studio.regenerate({ assetID: id, path: asset.path, start: start(), end: end(), prompt: prompt().trim() })
+      studio.regenerate({ assetID, path: asset.path, start: start(), end: end(), prompt: prompt().trim() })
       setPrompt("")
       setOpen(false)
+    } catch {
+      setFailed(true)
     } finally {
       setBusy(false)
     }
@@ -113,7 +146,7 @@ export function MediaVideo(props: { file: FilePart; title: string }) {
       <video
         ref={video}
         data-slot="tool-media-video"
-        src={src()}
+        src={loadedSrc()}
         title={props.title}
         controls
         preload="metadata"

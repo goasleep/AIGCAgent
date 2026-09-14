@@ -16,6 +16,10 @@ export type MediaRegenerateRequest = {
 export type MediaStudio = {
   /** 把资产 id 解析为可播放的内容 URL（带 directory 与服务器基址） */
   contentUrl?: (assetID: string) => string
+  /** 将会话中的媒体库相对 URL 解析为当前服务器地址 */
+  resolveUrl?: (url: string) => string
+  /** 读取需要鉴权的媒体 URL，并返回可供 img/video 使用的 URL */
+  loadUrl?: (url: string) => Promise<string>
   /** 查询资产信息（项目相对路径等），供重生成指令引用 */
   resolveAsset?: (assetID: string) => Promise<{ path: string } | undefined>
   /** 提交选段重生成请求（app 侧实现：填入 prompt 输入框） */
@@ -29,6 +33,12 @@ export function MediaStudioProvider(props: ParentProps<MediaStudio>) {
   const value: MediaStudio = {
     get contentUrl() {
       return props.contentUrl
+    },
+    get resolveUrl() {
+      return props.resolveUrl
+    },
+    get loadUrl() {
+      return props.loadUrl
     },
     get resolveAsset() {
       return props.resolveAsset

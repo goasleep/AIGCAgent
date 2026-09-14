@@ -658,9 +658,17 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
   }
 
   const updateConfigMutation = useMutation(() => ({
-    mutationFn: (config: Config) => serverSDK.client.global.config.update({ config }),
-    onSuccess: () => {
-      bootstrap.refetch()
+    mutationFn: (config: Config) => serverSDK.client.global.config.update({ config }, { throwOnError: true }),
+    onSuccess: async (result) => {
+      // Keep the config query in sync with the value returned by the update.
+      // v2 servers intentionally skip the legacy global config bootstrap, so
+      // refetching it there would replace the just-saved config with `{}`.
+      if (result.data) {
+        queryClient.setQueryData([serverSDK.scope, "config"], result.data)
+      }
+      if ((await serverSDK.protocol) === "v1") {
+        await bootstrap.refetch()
+      }
       // Invalidate all provider queries so newly configured custom providers
       // appear immediately in the available provider list across all directories.
       queryClient.invalidateQueries({ queryKey: [serverSDK.scope, null, "providers"] })

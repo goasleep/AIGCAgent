@@ -75,6 +75,9 @@ const require = __cjs_mod__.createRequire(import.meta.url);
             if (!l.endsWith(".wasm")) continue
             await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${OPENCODE_SERVER_DIST}/${l}`))
           }
+          for (const name of ["media_probe.txt", "media_process.txt", "media_generate_image.txt", "media_generate_video.txt"]) {
+            await fs.writeFile(`./out/main/chunks/${name}`, await fs.readFile(`../opencode/src/tool/${name}`))
+          }
         },
       },
     ],
