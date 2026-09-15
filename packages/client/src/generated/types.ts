@@ -389,6 +389,9 @@ export type SessionsPromptInput = {
       readonly text: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
+        readonly mime?: string
+        readonly asset_id?: string
+        readonly path?: string
         readonly name?: string
         readonly description?: string
         readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -407,6 +410,9 @@ export type SessionsPromptInput = {
       readonly text: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
+        readonly mime?: string
+        readonly asset_id?: string
+        readonly path?: string
         readonly name?: string
         readonly description?: string
         readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -425,6 +431,9 @@ export type SessionsPromptInput = {
       readonly text: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
+        readonly mime?: string
+        readonly asset_id?: string
+        readonly path?: string
         readonly name?: string
         readonly description?: string
         readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -443,6 +452,9 @@ export type SessionsPromptInput = {
       readonly text: string
       readonly files?: ReadonlyArray<{
         readonly uri: string
+        readonly mime?: string
+        readonly asset_id?: string
+        readonly path?: string
         readonly name?: string
         readonly description?: string
         readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -467,6 +479,8 @@ export type SessionsPromptOutput = {
       readonly files?: ReadonlyArray<{
         readonly uri: string
         readonly mime: string
+        readonly asset_id?: string
+        readonly path?: string
         readonly name?: string
         readonly description?: string
         readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -546,6 +560,8 @@ export type SessionsContextOutput = {
         readonly files?: ReadonlyArray<{
           readonly uri: string
           readonly mime: string
+          readonly asset_id?: string
+          readonly path?: string
           readonly name?: string
           readonly description?: string
           readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -622,6 +638,8 @@ export type SessionsContextOutput = {
                     readonly attachments?: ReadonlyArray<{
                       readonly uri: string
                       readonly mime: string
+                      readonly asset_id?: string
+                      readonly path?: string
                       readonly name?: string
                       readonly description?: string
                       readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -738,6 +756,8 @@ export type SessionsHistoryOutput = {
             readonly files?: ReadonlyArray<{
               readonly uri: string
               readonly mime: string
+              readonly asset_id?: string
+              readonly path?: string
               readonly name?: string
               readonly description?: string
               readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -765,6 +785,8 @@ export type SessionsHistoryOutput = {
             readonly files?: ReadonlyArray<{
               readonly uri: string
               readonly mime: string
+              readonly asset_id?: string
+              readonly path?: string
               readonly name?: string
               readonly description?: string
               readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -1196,6 +1218,8 @@ export type SessionsEventsOutput =
           readonly files?: ReadonlyArray<{
             readonly uri: string
             readonly mime: string
+            readonly asset_id?: string
+            readonly path?: string
             readonly name?: string
             readonly description?: string
             readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -1223,6 +1247,8 @@ export type SessionsEventsOutput =
           readonly files?: ReadonlyArray<{
             readonly uri: string
             readonly mime: string
+            readonly asset_id?: string
+            readonly path?: string
             readonly name?: string
             readonly description?: string
             readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -1624,6 +1650,8 @@ export type SessionsMessageOutput = {
         readonly files?: ReadonlyArray<{
           readonly uri: string
           readonly mime: string
+          readonly asset_id?: string
+          readonly path?: string
           readonly name?: string
           readonly description?: string
           readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -1700,6 +1728,8 @@ export type SessionsMessageOutput = {
                     readonly attachments?: ReadonlyArray<{
                       readonly uri: string
                       readonly mime: string
+                      readonly asset_id?: string
+                      readonly path?: string
                       readonly name?: string
                       readonly description?: string
                       readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -1796,6 +1826,8 @@ export type MessagesListOutput = {
         readonly files?: ReadonlyArray<{
           readonly uri: string
           readonly mime: string
+          readonly asset_id?: string
+          readonly path?: string
           readonly name?: string
           readonly description?: string
           readonly source?: { readonly start: number; readonly end: number; readonly text: string }
@@ -1872,6 +1904,8 @@ export type MessagesListOutput = {
                     readonly attachments?: ReadonlyArray<{
                       readonly uri: string
                       readonly mime: string
+                      readonly asset_id?: string
+                      readonly path?: string
                       readonly name?: string
                       readonly description?: string
                       readonly source?: { readonly start: number; readonly end: number; readonly text: string }

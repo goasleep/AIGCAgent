@@ -1,7 +1,9 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema, Semaphore } from "effect"
 import path from "path"
 import { copyFile, mkdir, rename, rm, stat, writeFile } from "fs/promises"
-import { and, desc, eq, lt, or } from "drizzle-orm"
+import { createReadStream } from "fs"
+import { createHash } from "crypto"
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { MediaAssetTable } from "@opencode-ai/core/media/sql"
@@ -22,7 +24,8 @@ export interface Asset {
   width: number | null
   height: number | null
   duration_ms: number | null
-  source: "generate" | "process"
+  source: "generate" | "process" | "upload"
+  content_hash?: string | null
   model: string | null
   prompt: string | null
   params: Record<string, unknown> | null
@@ -47,7 +50,7 @@ export interface IngestInput {
   directory: string
   source: IngestSource
   kind: "image" | "video"
-  source_kind: "generate" | "process"
+  source_kind: "generate" | "process" | "upload"
   model?: string
   prompt?: string
   params?: Record<string, unknown>
@@ -174,11 +177,18 @@ async function sourceBytes(url: string): Promise<{ mime: string; buffer: Buffer 
   return { mime, buffer: Buffer.from(await response.arrayBuffer()) }
 }
 
+async function contentHash(file: string) {
+  const hash = createHash("sha256")
+  for await (const chunk of createReadStream(file)) hash.update(chunk)
+  return hash.digest("hex")
+}
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const { db } = yield* Database.Service
     const projects = yield* Project.Service
+    const uploads = Semaphore.makeUnsafe(1)
 
     const projectFor = Effect.fn("Media.Library.projectFor")(function* (directory: string) {
       const instance = yield* InstanceRef
@@ -212,6 +222,44 @@ const layer = Layer.effect(
         return yield* Effect.fail(new Error(`产物 MIME ${mime} 与 kind=${input.kind} 不符`))
       }
 
+      const hash = yield* Effect.tryPromise(() => contentHash(staging))
+      const bytes = (yield* Effect.tryPromise(() => stat(staging))).size
+      const candidates =
+        input.source_kind === "upload"
+          ? yield* db
+              .select()
+              .from(MediaAssetTable)
+              .where(
+                and(
+                  eq(MediaAssetTable.project_id, project.id),
+                  eq(MediaAssetTable.bytes, bytes),
+                  eq(MediaAssetTable.mime, mime),
+                  or(eq(MediaAssetTable.content_hash, hash), isNull(MediaAssetTable.content_hash)),
+                ),
+              )
+              .all()
+          : []
+      for (const candidate of candidates) {
+        const file = path.resolve(input.directory, candidate.path)
+        const existing = yield* Effect.tryPromise(async () => {
+          if (!(await Bun.file(file).exists())) return undefined
+          return candidate.content_hash ?? (await contentHash(file))
+        }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        // Assets created before the hash column was introduced are reconciled lazily.
+        if (!candidate.content_hash && existing) {
+          yield* db
+            .update(MediaAssetTable)
+            .set({ content_hash: existing })
+            .where(eq(MediaAssetTable.id, candidate.id))
+            .run()
+        }
+        if (existing !== hash) continue
+        if (staging.startsWith(`${mediaTmpDir(input.directory)}${path.sep}`)) {
+          yield* Effect.tryPromise(() => rm(staging, { force: true })).pipe(Effect.ignore)
+        }
+        return { ...candidate, content_hash: existing } as Asset
+      }
+
       const dir = monthDir(input.directory)
       yield* Effect.tryPromise(() => mkdir(dir, { recursive: true }))
       const target = path.join(dir, `${id}${ext}`)
@@ -222,8 +270,6 @@ const layer = Layer.effect(
           await copyFile(staging, target)
         }
       })
-      const bytes = (yield* Effect.tryPromise(() => stat(target))).size
-
       const row = {
         id,
         project_id: project.id,
@@ -235,6 +281,7 @@ const layer = Layer.effect(
         height: input.height ?? null,
         duration_ms: input.duration_ms ?? null,
         source: input.source_kind,
+        content_hash: hash,
         model: input.model ?? null,
         prompt: input.prompt ?? null,
         params: input.params ?? null,
@@ -243,7 +290,11 @@ const layer = Layer.effect(
         time_created: Date.now(),
         time_updated: Date.now(),
       }
-      yield* db.insert(MediaAssetTable).values(row).run()
+      yield* db
+        .insert(MediaAssetTable)
+        .values(row)
+        .run()
+        .pipe(Effect.onError(() => Effect.tryPromise(() => rm(target, { force: true })).pipe(Effect.ignore)))
       return row as Asset
     })
 
@@ -318,7 +369,14 @@ const layer = Layer.effect(
       return resolved
     })
 
-    return Service.of({ ingest, list, stats, get, remove, absolute })
+    return Service.of({
+      ingest: (input) => uploads.withPermits(1)(ingest(input)),
+      list,
+      stats,
+      get,
+      remove,
+      absolute,
+    })
   }),
 )
 

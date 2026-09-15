@@ -5,6 +5,7 @@ import { encodeFilePath } from "@/context/file/path"
 import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
+import { mediaReference } from "./media-attachments"
 
 type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 
@@ -194,14 +195,27 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     ]
   })
 
-  const images = input.images.map((attachment) => {
-    return {
-      id: Identifier.ascending("part"),
-      type: "file",
-      mime: attachment.mime,
-      url: attachment.dataUrl,
-      filename: attachment.sourcePath ?? attachment.filename,
-    } satisfies PromptRequestPart
+  const images = input.images.flatMap((attachment) => {
+    const reference = attachment.media
+      ? [
+          {
+            id: Identifier.ascending("part"),
+            type: "text",
+            text: mediaReference(attachment),
+            metadata: { media_asset: { ...attachment.media, mime: attachment.mime, name: attachment.filename } },
+          } satisfies PromptRequestPart,
+        ]
+      : []
+    return [
+      {
+        id: Identifier.ascending("part"),
+        type: "file",
+        mime: attachment.mime,
+        url: attachment.dataUrl,
+        filename: attachment.sourcePath ?? attachment.filename,
+      } satisfies PromptRequestPart,
+      ...reference,
+    ]
   })
 
   requestParts.push(...files, ...context, ...agents, ...images)

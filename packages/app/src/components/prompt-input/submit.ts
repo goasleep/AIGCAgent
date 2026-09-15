@@ -22,7 +22,7 @@ import { ScopedKey } from "@/utils/server-scope"
 import { createPromptSubmissionState } from "./submission-state"
 import { normalizeSessionInfo } from "@/utils/session"
 import { Event } from "@opencode-ai/schema/event"
-import { blobDataUrl } from "@/utils/draft-store"
+import { encodeMediaAttachment, isVideoReference, mediaReference } from "./media-attachments"
 
 type PendingPrompt = {
   abort: AbortController
@@ -58,6 +58,9 @@ const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttac
 export async function sendFollowupDraft(input: FollowupSendInput) {
   const text = draftText(input.draft.prompt)
   const images = draftImages(input.draft.prompt)
+  if (images.some((attachment) => attachment.media && attachment.media.directory !== input.draft.sessionDirectory)) {
+    throw new Error("Media belongs to another project directory. Select it again from this project's media library.")
+  }
   const setBusy = () => {
     if (!input.optimisticBusy) return
     input.serverSync.session.set("session_status", input.draft.sessionID, { type: "busy" })
@@ -89,7 +92,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
         sessionID: input.draft.sessionID,
         id: messageID,
         command: cmd,
-        arguments: tail.join(" "),
+        arguments: [tail.join(" "), ...images.filter(isVideoReference).map(mediaReference)].filter(Boolean).join("\n"),
         agent: input.draft.agent,
         model: {
           id: input.draft.model.modelID,
@@ -97,10 +100,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
           variant: input.draft.variant,
         },
         files: await Promise.all(
-          images.map(async (attachment) => ({
-            uri: await blobDataUrl(attachment.blob, attachment.mime),
-            name: attachment.filename,
-          })),
+          images.filter((attachment) => !isVideoReference(attachment)).map(encodeMediaAttachment),
         ),
       })
       return true
@@ -114,7 +114,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
   const encodedImages = await Promise.all(
     images.map(async (attachment) => ({
       ...attachment,
-      dataUrl: await blobDataUrl(attachment.blob, attachment.mime),
+      dataUrl: (await encodeMediaAttachment(attachment)).uri,
     })),
   )
   const { requestParts, optimisticParts } = buildRequestParts({
@@ -173,17 +173,22 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       variant: input.draft.variant,
       legacyParts: requestParts,
       text: requestParts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-      files: requestParts.flatMap((part) => {
-        if (part.type !== "file") return []
-        const text = part.source?.text
-        return [
-          {
-            uri: part.url,
-            name: part.filename,
-            mention: text ? { start: text.start, end: text.end, text: text.value } : undefined,
-          },
-        ]
-      }),
+      files: [
+        ...requestParts.flatMap((part) => {
+          if (part.type !== "file") return []
+          const text = part.source?.text
+          return [
+            {
+              uri: part.url,
+              name: part.filename,
+              asset_id: encodedImages.find((attachment) => attachment.dataUrl === part.url)?.media?.asset_id,
+              path: encodedImages.find((attachment) => attachment.dataUrl === part.url)?.media?.path,
+              mention: text ? { start: text.start, end: text.end, text: text.value } : undefined,
+            },
+          ]
+        }),
+        ...(await Promise.all(images.filter(isVideoReference).map(encodeMediaAttachment))),
+      ],
       agents: requestParts.flatMap((part) =>
         part.type === "agent"
           ? [
@@ -522,14 +527,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             sessionID: session.id,
             id: messageID,
             command: commandName,
-            arguments: args.join(" "),
+            arguments: [args.join(" "), ...images.filter(isVideoReference).map(mediaReference)]
+              .filter(Boolean)
+              .join("\n"),
             agent,
             model: { id: model.modelID, providerID: model.providerID, variant },
             files: await Promise.all(
-              images.map(async (attachment) => ({
-                uri: await blobDataUrl(attachment.blob, attachment.mime),
-                name: attachment.filename,
-              })),
+              images.filter((attachment) => !isVideoReference(attachment)).map(encodeMediaAttachment),
             ),
           })
           .catch((err) => {

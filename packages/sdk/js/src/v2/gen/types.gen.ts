@@ -2007,6 +2007,21 @@ export type Config = {
     [key: string]: boolean
   }
   attachment?: AttachmentConfig
+  media?: {
+    image_model?: string
+    video_model?: string
+    openai_base_url?: string
+    openai_api_key?: string
+    agnes_api_key?: string
+    agnes_base_url?: string
+    ark_api_key?: string
+    ark_base_url?: string
+    dashscope_api_key?: string
+    dashscope_base_url?: string
+    minimax_api_key?: string
+    minimax_base_url?: string
+    ffmpeg_path?: string
+  }
   enterprise?: {
     url?: string
   }
@@ -2964,6 +2979,35 @@ export type EffectHttpApiErrorForbidden = {
   _tag: "Forbidden"
 }
 
+export type MediaAsset = {
+  id: string
+  project_id: string
+  path: string
+  kind: "image" | "video"
+  mime: string
+  bytes: number
+  width: number | null
+  height: number | null
+  duration_ms: number | null
+  source: "generate" | "process" | "upload"
+  content_hash?: string | null | null
+  model: string | null
+  prompt: string | null
+  params: {
+    [key: string]: unknown
+  } | null
+  job_id: string | null
+  cost_usd_estimate: number | null
+  time_created: number
+  time_updated: number
+}
+
+export type UnknownError3 = {
+  _tag: "UnknownError"
+  message: string
+  ref?: string
+}
+
 export type EventTuiPromptAppend2 = {
   id: string
   type: "tui.prompt.append"
@@ -3058,6 +3102,8 @@ export type PromptSource = {
 export type PromptFileAttachment = {
   uri: string
   mime: string
+  asset_id?: string
+  path?: string
   name?: string
   description?: string
   source?: PromptSource
@@ -3934,6 +3980,9 @@ export type SessionV2Info = {
 
 export type PromptInputFileAttachment = {
   uri: string
+  mime?: string
+  asset_id?: string
+  path?: string
   name?: string
   description?: string
   source?: PromptSource
@@ -13623,3 +13672,250 @@ export type PtyConnectResponses = {
 }
 
 export type PtyConnectResponse = PtyConnectResponses[keyof PtyConnectResponses]
+
+export type MediaUploadData = {
+  body?: {
+    file: Blob | File
+  }
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/upload"
+}
+
+export type MediaUploadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * UnknownError
+   */
+  500: UnknownError3
+}
+
+export type MediaUploadError = MediaUploadErrors[keyof MediaUploadErrors]
+
+export type MediaUploadResponses = {
+  /**
+   * Success
+   */
+  200: {
+    asset: MediaAsset
+    content_url: string
+  }
+}
+
+export type MediaUploadResponse = MediaUploadResponses[keyof MediaUploadResponses]
+
+export type MediaListData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media"
+}
+
+export type MediaListResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type MediaStatsData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/stats"
+}
+
+export type MediaStatsResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type MediaTasksData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/tasks"
+}
+
+export type MediaTasksResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type MediaCancelData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/task"
+}
+
+export type MediaCancelResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type MediaTaskData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/task"
+}
+
+export type MediaTaskResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type MediaRemoveData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/asset"
+}
+
+export type MediaRemoveResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type MediaAssetData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/asset"
+}
+
+export type MediaAssetResponses = {
+  /**
+   * Success
+   */
+  200: unknown
+}
+
+export type MediaContentData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+    id?: string
+    kind?: "image" | "video"
+    cursor?: string
+    limit?: string
+    from?: string
+    to?: string
+    auth_token?: string
+    preview?: "thumbnail"
+  }
+  url: "/media/content"
+}
+
+export type MediaContentResponses = {
+  /**
+   * Success
+   */
+  200: string
+}
+
+export type MediaContentResponse = MediaContentResponses[keyof MediaContentResponses]

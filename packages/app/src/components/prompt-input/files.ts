@@ -1,4 +1,4 @@
-import { ACCEPTED_FILE_TYPES, ACCEPTED_IMAGE_TYPES } from "@/constants/file-picker"
+import { ACCEPTED_FILE_TYPES, ACCEPTED_IMAGE_TYPES, ACCEPTED_VIDEO_TYPES } from "@/constants/file-picker"
 
 export { ACCEPTED_FILE_TYPES }
 
@@ -35,6 +35,7 @@ export function pickAttachmentFiles(input: {
 }
 
 const IMAGE_MIMES = new Set(ACCEPTED_IMAGE_TYPES)
+const VIDEO_MIMES = new Set(ACCEPTED_VIDEO_TYPES)
 const IMAGE_EXTS = new Map([
   ["gif", "image/gif"],
   ["jpeg", "image/jpeg"],
@@ -85,10 +86,14 @@ function textBytes(bytes: Uint8Array) {
 export async function attachmentMime(file: File) {
   const type = kind(file.type)
   if (IMAGE_MIMES.has(type)) return type
+  if (VIDEO_MIMES.has(type)) return type
   if (type === "application/pdf") return type
 
   const suffix = ext(file.name)
   const fallback = IMAGE_EXTS.get(suffix) ?? (suffix === "pdf" ? "application/pdf" : undefined)
+  if ((!type || type === "application/octet-stream") && suffix === "mp4") return "video/mp4"
+  if ((!type || type === "application/octet-stream") && suffix === "webm") return "video/webm"
+  if ((!type || type === "application/octet-stream") && (suffix === "mov" || suffix === "qt")) return "video/quicktime"
   if ((!type || type === "application/octet-stream") && fallback) return fallback
 
   if (textMime(type)) return "text/plain"

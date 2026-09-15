@@ -1,11 +1,17 @@
 import { Effect, Layer, Schema } from "effect"
-import { NodeFileSystem } from "@effect/platform-node"
-import { HttpPlatform, HttpServerResponse } from "effect/unstable/http"
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import { HttpPlatform, HttpServerResponse, Multipart } from "effect/unstable/http"
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi"
 import { Authorization } from "./middleware/authorization"
 import { InstanceContextMiddleware } from "./middleware/instance-context"
 import { WorkspaceRoutingMiddleware, WorkspaceRoutingQueryFields } from "./middleware/workspace-routing"
-import { stat } from "fs/promises"
+import { copyFile, mkdir, rm, stat } from "fs/promises"
+import path from "node:path"
+import { randomUUID } from "node:crypto"
+import { MediaAsset } from "@opencode-ai/schema/media-asset"
+import { MAX_UPLOAD_BYTES, validateMediaUpload } from "@/media/upload"
+import { mediaTmpDir } from "@/media/paths"
+import { InvalidRequestError, UnknownError } from "./errors"
 import { BackgroundJob } from "@/background/job"
 import { type Info, type Kind } from "@opencode-ai/core/media/task"
 import { MediaLibrary } from "@/media/library"
@@ -31,6 +37,18 @@ const query = Schema.Struct({
 export const MediaApi = HttpApi.make("media").add(
   HttpApiGroup.make("media")
     .add(
+      HttpApiEndpoint.post("upload", "/media/upload", {
+        query,
+        payload: Schema.Struct({ file: Multipart.SingleFileSchema }).pipe(
+          HttpApiSchema.asMultipart({
+            maxParts: 1,
+            maxFileSize: MAX_UPLOAD_BYTES,
+            maxTotalSize: MAX_UPLOAD_BYTES + 65536,
+          }),
+        ),
+        success: Schema.Struct({ asset: MediaAsset, content_url: Schema.String }),
+        error: [InvalidRequestError, UnknownError],
+      }),
       HttpApiEndpoint.get("list", "/media", { query, success: Schema.Unknown }),
       HttpApiEndpoint.get("stats", "/media/stats", { query, success: Schema.Unknown }),
       HttpApiEndpoint.get("tasks", "/media/tasks", { query, success: Schema.Unknown }),
@@ -111,6 +129,38 @@ export const mediaHandlers = HttpApiBuilder.group(MediaApi, "media", (handlers) 
 
     return (
       handlers
+        .handle("upload", ({ payload, query }) =>
+          Effect.gen(function* () {
+            const format = yield* Effect.tryPromise(() => validateMediaUpload(payload.file)).pipe(
+              Effect.mapError((error) => new InvalidRequestError({ message: String(error.cause ?? error) })),
+            )
+            const directory = query.directory
+            const staging = path.join(
+              mediaTmpDir(directory),
+              `${randomUUID()}${path.extname(payload.file.name).toLowerCase()}`,
+            )
+            const asset = yield* Effect.gen(function* () {
+              yield* Effect.tryPromise(async () => {
+                await mkdir(mediaTmpDir(directory), { recursive: true })
+                await copyFile(payload.file.path, staging)
+              })
+              return yield* library.ingest({
+                directory,
+                source: { type: "file", path: staging },
+                kind: format.kind,
+                source_kind: "upload",
+                params: { filename: payload.file.name },
+              })
+            }).pipe(
+              Effect.ensuring(Effect.tryPromise(() => rm(staging, { force: true })).pipe(Effect.ignore)),
+              Effect.mapError(() => new UnknownError({ message: "Failed to save media upload" })),
+            )
+            return {
+              asset,
+              content_url: `/media/content?${new URLSearchParams({ directory, id: asset.id })}`,
+            }
+          }),
+        )
         .handleRaw("list", ({ request }) =>
           guard(
             Effect.gen(function* () {
@@ -302,6 +352,8 @@ export const mediaHandlers = HttpApiBuilder.group(MediaApi, "media", (handlers) 
     )
   }),
 ).pipe(
+  Layer.provide(NodePath.layer),
+  Layer.provide(NodeFileSystem.layer),
   // The web-handler fallback supplies a no-op filesystem. Media files require
   // the real filesystem with a portable stream body (also works in Web handlers).
   Layer.provide(Layer.fresh(HttpPlatform.layer.pipe(Layer.provide(NodeFileSystem.layer)))),

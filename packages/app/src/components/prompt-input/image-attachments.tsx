@@ -89,12 +89,17 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                     <Show
                       when={props.newLayoutDesigns}
                       fallback={
-                        <div class={fallbackClass}>
+                        <button
+                          type="button"
+                          class={fallbackClass}
+                          onClick={() => props.onOpen(attachment)}
+                          aria-label={attachment.filename}
+                        >
                           <Icon name="folder" class="size-6 text-text-weak" />
-                        </div>
+                        </button>
                       }
                     >
-                      <AttachmentCardV2 title={attachment.filename}>
+                      <AttachmentCardV2 title={attachment.filename} onClick={() => props.onOpen(attachment)}>
                         {typeLabel(attachment.filename, attachment.mime, props.fileLabel)}
                       </AttachmentCardV2>
                     </Show>

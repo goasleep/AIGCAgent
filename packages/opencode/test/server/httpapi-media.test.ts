@@ -1,7 +1,8 @@
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { expect } from "bun:test"
-import { Config, ConfigProvider, Context, Effect, Layer } from "effect"
-import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
+import { Config, ConfigProvider, Context, Effect, Layer, Schema } from "effect"
+import { MediaAsset } from "@opencode-ai/schema/media-asset"
+import { HttpBody, HttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
 import { Socket } from "effect/unstable/socket"
 import { AppNodeBuilderV1 } from "../../src/effect/app-node-builder-v1"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -12,7 +13,8 @@ import { MediaLibrary } from "../../src/media/library"
 import { MediaFFmpeg } from "../../src/media/ffmpeg"
 import { MediaPreview } from "../../src/media/preview"
 import path from "node:path"
-import { access } from "node:fs/promises"
+import { access, readdir } from "node:fs/promises"
+import { mediaTmpDir } from "../../src/media/paths"
 import { BackgroundJob } from "../../src/background/job"
 import { InstanceStore } from "../../src/project/instance-store"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
@@ -53,6 +55,85 @@ const authenticated = testEffect(
   Layer.mergeAll(server, services).pipe(
     Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ OPENCODE_SERVER_PASSWORD: "media-test-secret" }))),
   ),
+)
+
+const UploadResult = Schema.Struct({ asset: MediaAsset, content_url: Schema.String })
+
+it.live("uploads media, reuses project-local content and removes staging files", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped({ git: true })
+    const other = yield* tmpdirScoped({ git: true })
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aNCkAAAAASUVORK5CYII=",
+      "base64",
+    )
+    const send = (directory: string, mime = "image/png", name = "photo.png", bytes: Uint8Array = png) => {
+      const form = new FormData()
+      form.append("file", new Blob([new Uint8Array(bytes)], { type: mime }), name)
+      return HttpClient.post(`/media/upload?${new URLSearchParams({ directory })}`, { body: HttpBody.formData(form) })
+    }
+    const first = yield* send(directory)
+    expect(first.status).toBe(200)
+    const body = Schema.decodeUnknownSync(UploadResult)(yield* first.json)
+    expect(body.asset).toMatchObject({
+      source: "upload",
+      kind: "image",
+      bytes: png.length,
+      params: { filename: "photo.png" },
+    })
+    expect(body.asset.content_hash).toHaveLength(64)
+    const repeated = yield* Effect.all([send(directory), send(directory)], { concurrency: 2 })
+    for (const response of repeated) expect(yield* response.json).toMatchObject({ asset: { id: body.asset.id } })
+    const database = yield* Database.Service
+    yield* database.db
+      .update(MediaAssetTable)
+      .set({ content_hash: null })
+      .where(eq(MediaAssetTable.id, body.asset.id))
+      .run()
+    const historical = yield* send(directory)
+    expect(yield* historical.json).toMatchObject({
+      asset: { id: body.asset.id, content_hash: body.asset.content_hash },
+    })
+    expect((yield* (yield* send(other)).json) as { asset: { id: string } }).not.toMatchObject({
+      asset: { id: body.asset.id },
+    })
+    const content = yield* HttpClient.get(body.content_url)
+    expect(Buffer.from(yield* content.arrayBuffer)).toEqual(png)
+    expect(yield* Effect.promise(() => readdir(mediaTmpDir(directory)))).toEqual([])
+    expect((yield* send(directory, "video/mp4")).status).toBe(400)
+    expect((yield* send(directory, "image/png", "bad.png", new Uint8Array([1, 2, 3]))).status).toBe(400)
+    expect((yield* send(directory, "image/png", "empty.png", new Uint8Array())).status).toBe(400)
+    const list = yield* HttpClient.get(`/media?${new URLSearchParams({ directory })}`)
+    expect(yield* list.json).toMatchObject({ items: [{ id: body.asset.id }] })
+  }),
+)
+
+it.live("uploads a real video and serves it with byte ranges", () =>
+  Effect.gen(function* () {
+    const directory = yield* tmpdirScoped({ git: true })
+    const ffmpeg = yield* MediaFFmpeg.Service
+    const instances = yield* InstanceStore.Service
+    const input = path.join(directory, "clip.mp4")
+    yield* instances.provide(
+      { directory },
+      ffmpeg.run(["-f", "lavfi", "-i", "color=c=blue:s=32x32:r=1", "-t", "1", "-pix_fmt", "yuv420p", input], {
+        timeoutMs: 10_000,
+      }),
+    )
+    const bytes = yield* Effect.promise(() => Bun.file(input).arrayBuffer())
+    const form = new FormData()
+    form.append("file", new Blob([bytes], { type: "video/mp4" }), "clip.mp4")
+    const response = yield* HttpClient.post(`/media/upload?${new URLSearchParams({ directory })}`, {
+      body: HttpBody.formData(form),
+    })
+    expect(response.status).toBe(200)
+    const body = Schema.decodeUnknownSync(UploadResult)(yield* response.json)
+    expect(body.asset).toMatchObject({ kind: "video", source: "upload", mime: "video/mp4", bytes: bytes.byteLength })
+    const range = yield* HttpClient.get(body.content_url, { headers: { range: "bytes=0-15" } })
+    expect(range.status).toBe(206)
+    expect(new Uint8Array(yield* range.arrayBuffer)).toEqual(new Uint8Array(bytes.slice(0, 16)))
+    expect(yield* Effect.promise(() => Bun.file(input).exists())).toBe(true)
+  }),
 )
 
 it.live("loads an empty project's library, stats and tasks as JSON", () =>
@@ -243,6 +324,7 @@ authenticated.live("protects all media endpoints and accepts native preview quer
       source_kind: "generate",
     })
     const token = Buffer.from("opencode:media-test-secret").toString("base64")
+    expect((yield* HttpClient.post(`/media/upload?${new URLSearchParams({ directory })}`)).status).toBe(401)
     for (const endpoint of [
       "/media",
       "/media/stats",

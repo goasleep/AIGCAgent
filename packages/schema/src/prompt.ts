@@ -13,6 +13,8 @@ export interface FileAttachment extends Schema.Schema.Type<typeof FileAttachment
 export const FileAttachment = Schema.Struct({
   uri: Schema.String,
   mime: Schema.String,
+  asset_id: Schema.String.pipe(optional),
+  path: Schema.String.pipe(optional),
   name: Schema.String.pipe(optional),
   description: Schema.String.pipe(optional),
   source: Source.pipe(optional),
@@ -24,6 +26,8 @@ export const FileAttachment = Schema.Struct({
         schema.make({
           uri: input.uri,
           mime: input.mime,
+          asset_id: input.asset_id,
+          path: input.path,
           name: input.name,
           description: input.description,
           source: input.source,

@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "8a1acb04-963a-48fa-8a88-65c147e06328",
+  "id": "18800cd5-b912-435d-b081-3b266f91cfca",
   "prevIds": [
-    "f14a9b18-8207-487e-a3d3-227e629ba9ad"
+    "8a1acb04-963a-48fa-8a88-65c147e06328"
   ],
   "ddl": [
     {
@@ -643,6 +643,16 @@
       "default": null,
       "generated": null,
       "name": "source",
+      "entityType": "columns",
+      "table": "media_asset"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content_hash",
       "entityType": "columns",
       "table": "media_asset"
     },

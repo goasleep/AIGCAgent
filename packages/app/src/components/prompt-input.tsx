@@ -80,7 +80,7 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
-import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { createPromptMedia } from "./prompt-input/media"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
 
 export { createPromptInputHistory }
@@ -1189,6 +1189,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     />
   )
 
+  const media = createPromptMedia({ capture: () => prompt.capture() })
+
   const variants = createMemo(() => ["default", ...props.controls.model.selection.variant.list()])
   // Check provider variants directly: `variants` also includes the UI-only default option.
   const showVariantControl = createMemo(() => props.controls.model.selection.variant.list().length > 0)
@@ -1488,9 +1490,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         />
         <PromptImageAttachments
           attachments={imageAttachments()}
-          onOpen={(attachment) =>
-            dialog.show(() => <ImagePreview src={attachment.blob.url} alt={attachment.filename} />)
-          }
+          onOpen={media.preview}
           onRemove={removeAttachment}
           removeLabel={language.t("prompt.attachment.remove")}
           fileLabel={language.t("ui.common.file")}
@@ -1603,19 +1603,28 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 title={language.t("prompt.action.attachFile")}
                 keybind={command.keybind("file.attach")}
               >
-                <Button
-                  data-action="prompt-attach"
-                  type="button"
-                  variant="ghost"
-                  class="size-8 p-0"
-                  style={buttons()}
-                  onClick={pick}
-                  disabled={store.mode !== "normal"}
-                  tabIndex={store.mode === "normal" ? undefined : -1}
-                  aria-label={language.t("prompt.action.attachFile")}
-                >
-                  <Icon name="plus" class="size-4.5" />
-                </Button>
+                <MenuV2 placement="top-start" modal={false}>
+                  <MenuV2.Trigger
+                    as={Button}
+                    data-action="prompt-attach"
+                    type="button"
+                    variant="ghost"
+                    class="size-8 p-0"
+                    style={buttons()}
+                    disabled={store.mode !== "normal"}
+                    tabIndex={store.mode === "normal" ? undefined : -1}
+                    aria-label={language.t("prompt.action.attachFile")}
+                  >
+                    <Icon name="plus" class="size-4.5" />
+                  </MenuV2.Trigger>
+                  <MenuV2.Portal>
+                    <MenuV2.Content>
+                      <MenuV2.Item onSelect={pick}>{language.t("prompt.menu.imagesAndFiles")}</MenuV2.Item>
+                      <MenuV2.Item onSelect={() => media.open()}>{language.t("media.picker.open")}</MenuV2.Item>
+                      <MenuV2.Item onSelect={() => media.open(true)}>{language.t("media.upload.open")}</MenuV2.Item>
+                    </MenuV2.Content>
+                  </MenuV2.Portal>
+                </MenuV2>
               </TooltipKeybind>
             </div>
           </div>

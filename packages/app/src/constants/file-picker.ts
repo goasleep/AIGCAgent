@@ -1,7 +1,9 @@
 export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"]
 
 export const ACCEPTED_FILE_TYPES = [
   ...ACCEPTED_IMAGE_TYPES,
+  ...ACCEPTED_VIDEO_TYPES,
   "application/pdf",
   "text/*",
   "application/json",
@@ -60,6 +62,9 @@ const MIME_EXT = new Map([
   ["image/jpeg", "jpg"],
   ["image/gif", "gif"],
   ["image/webp", "webp"],
+  ["video/mp4", "mp4"],
+  ["video/webm", "webm"],
+  ["video/quicktime", "mov"],
   ["application/pdf", "pdf"],
   ["application/json", "json"],
   ["application/ld+json", "jsonld"],

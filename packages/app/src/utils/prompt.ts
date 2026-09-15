@@ -42,7 +42,7 @@ function selectionFromFileUrl(url: string): Extract<Inline, { type: "file" }>["s
 function textPartValue(parts: Part[]) {
   const candidates = parts
     .filter((part): part is TextPart => part.type === "text")
-    .filter((part) => !part.synthetic && !part.ignored)
+    .filter((part) => !part.synthetic && !part.ignored && !part.metadata?.media_asset)
   return candidates.reduce((best: TextPart | undefined, part) => {
     if (!best) return part
     if (part.text.length > best.text.length) return part
@@ -79,6 +79,33 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
   const images: ImageAttachmentPart[] = []
 
   for (const part of parts) {
+    if (part.type === "text" && part.metadata?.media_asset) {
+      const media = part.metadata.media_asset as Record<string, unknown>
+      if (typeof media.asset_id !== "string" || typeof media.path !== "string" || typeof media.mime !== "string")
+        continue
+      const reference = {
+        asset_id: media.asset_id,
+        path: media.path,
+        directory: typeof media.directory === "string" ? media.directory : (directory ?? ""),
+      }
+      if (media.mime.startsWith("video/")) {
+        const existing = images.findLast((item) => item.filename === media.name && item.mime === media.mime)
+        if (existing) existing.media = reference
+        else {
+          images.push({
+            type: "image",
+            id: part.id,
+            filename: typeof media.name === "string" ? media.name : media.path,
+            mime: media.mime,
+            blob: createLegacyBlobReference("data:application/octet-stream;base64,"),
+            media: reference,
+          })
+        }
+      }
+      const image = images.findLast((item) => item.filename === media.name && item.mime === media.mime)
+      if (image) image.media = reference
+      continue
+    }
     if (part.type === "file") {
       const filePart = part as FilePart
       const sourceText = filePart.source?.text

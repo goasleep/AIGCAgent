@@ -98,6 +98,7 @@ export default {
           \`height\` integer,
           \`duration_ms\` integer,
           \`source\` text NOT NULL,
+          \`content_hash\` text,
           \`model\` text,
           \`prompt\` text,
           \`params\` text,

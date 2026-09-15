@@ -13,19 +13,23 @@ export type MediaAsset = {
   width: number | null
   height: number | null
   duration_ms: number | null
-  source: "generate" | "process"
+  source: "generate" | "process" | "upload"
+  content_hash?: string | null
+  params?: Record<string, unknown> | null
   model: string | null
   prompt: string | null
   cost_usd_estimate: number | null
   time_created: number
 }
 
-type Source = {
+export type MediaSource = {
   url: string
   directory: string
-  kind: MediaKindFilter
   authorization?: string
+  username?: string
+  password?: string
 }
+type Source = MediaSource & { kind: MediaKindFilter }
 type Page = { items: MediaAsset[]; next?: string }
 type Loaded = Page & { source: Source; error: boolean }
 

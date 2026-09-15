@@ -1,4 +1,4 @@
-import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import { createPromptMedia } from "./prompt-input/media"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
@@ -90,6 +90,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
   const language = useLanguage()
   const platform = usePlatform()
   const prompt = props.state ?? usePrompt()
+  const media = createPromptMedia({ capture: () => prompt.capture() })
   let editor: HTMLDivElement | undefined
 
   const interaction = createPromptInputV2State()
@@ -346,8 +347,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     onContextRemove(item) {
       if (item?.commentID) comments.remove(item.path, item.commentID)
     },
-    openAttachment: (attachment) =>
-      dialog.show(() => <ImagePreview src={attachment.blob.url} alt={attachment.filename} />),
+    openAttachment: media.preview,
     openContext(key) {
       const item = controller.contextItem(key)
       if (item) openComment(item, props, sync, layout, files, comments)
@@ -383,6 +383,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       store: platform.draftStore?.putBlob,
     },
     view: {
+      add: { actions: media.actions },
       placeholder: designPlaceholder,
       get agent() {
         return props.controls.agents.visible && props.controls.agents.options.length > 0

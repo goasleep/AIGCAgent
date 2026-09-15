@@ -8,6 +8,11 @@ describe("attachmentMime", () => {
     expect(await attachmentMime(file)).toBe("application/pdf")
   })
 
+  test("accepts Gemini-compatible video files", async () => {
+    const file = new File([Uint8Array.of(0, 1, 2, 3)], "clip.mp4", { type: "video/mp4" })
+    expect(await attachmentMime(file)).toBe("video/mp4")
+  })
+
   test("normalizes structured text types to text/plain", async () => {
     const file = new File(['{"ok":true}\n'], "data.json", { type: "application/json" })
     expect(await attachmentMime(file)).toBe("text/plain")

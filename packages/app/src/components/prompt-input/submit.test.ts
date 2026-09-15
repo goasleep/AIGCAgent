@@ -132,8 +132,7 @@ beforeAll(async () => {
     },
   }))
 
-  mock.module("@opencode-ai/ui/toast", () => ({
-    Toast: { Region: () => null },
+  mock.module("@/utils/toast", () => ({
     showToast: () => 0,
   }))
 
@@ -492,6 +491,54 @@ describe("prompt submit worktree selection", () => {
     expect((promptInputs[0] as { legacyParts?: { id: string; type: string; text?: string }[] }).legacyParts).toEqual([
       { id: expect.stringMatching(/^prt_/), type: "text", text: "ls" },
     ])
+  })
+
+  test("sends video asset metadata and a legacy path reference without fetching video bytes", async () => {
+    params = { id: "session-1" }
+    promptValue = [
+      { type: "text", content: "Edit", start: 0, end: 4 },
+      {
+        type: "image",
+        id: "attachment-video",
+        filename: "clip.mp4",
+        mime: "video/mp4",
+        blob: { id: "unused", url: "blob:must-not-read" },
+        media: { asset_id: "med_clip", path: ".opencode/media/clip.mp4", directory: "/repo/main" },
+      },
+    ]
+    const submit = createPromptSubmit({
+      prompt,
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => promptValue.filter((part) => part.type === "image"),
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: () => 4,
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await Bun.sleep(0)
+    expect(promptInputs[0]).toMatchObject({
+      files: [
+        {
+          uri: "media://med_clip",
+          asset_id: "med_clip",
+          path: ".opencode/media/clip.mp4",
+          mime: "video/mp4",
+          name: "clip.mp4",
+        },
+      ],
+      legacyParts: [
+        expect.objectContaining({ text: "Edit" }),
+        expect.objectContaining({ type: "text", text: expect.stringContaining("med_clip") }),
+      ],
+    })
   })
 
   test("submits slash commands through the current session API", async () => {

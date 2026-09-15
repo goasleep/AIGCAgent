@@ -14,6 +14,70 @@ const id = (value: string) => SessionMessage.ID.make(`msg_${value}`)
 const model = Model.make({ id: "model", provider: "provider", route: OpenAIChat.route })
 
 describe("toLLMMessages", () => {
+  test("lowers managed video references to tool-readable text while retaining image media", () => {
+    const files = [
+      FileAttachment.make({
+        uri: "media://med_video",
+        mime: "video/mp4",
+        name: "clip.mp4",
+        asset_id: "med_video",
+        path: ".opencode/media/clip.mp4",
+      }),
+      FileAttachment.make({
+        uri: "data:image/png;base64,aGVsbG8=",
+        mime: "image/png",
+        asset_id: "med_image",
+        path: ".opencode/media/photo.png",
+      }),
+    ]
+    const messages = toLLMMessages(
+      [SessionMessage.User.make({ id: id("media"), type: "user", text: "Edit the clip", files, time: { created } })],
+      model,
+    )
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "Edit the clip" },
+      { type: "text", text: expect.stringContaining('"med_video"') },
+      {
+        type: "media",
+        mediaType: "image/png",
+        data: "data:image/png;base64,aGVsbG8=",
+        filename: undefined,
+        metadata: undefined,
+      },
+    ])
+    expect(JSON.stringify(messages[0]?.content)).toContain(".opencode/media/clip.mp4")
+  })
+
+  test("retains inline video data for multimodal providers", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.User.make({
+          id: id("inline-video"),
+          type: "user",
+          text: "Edit this video",
+          files: [
+            FileAttachment.make({
+              uri: "data:video/mp4;base64,aGVsbG8=",
+              mime: "video/mp4",
+              name: "clip.mp4",
+              asset_id: "med_video",
+              path: ".opencode/media/clip.mp4",
+            }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+    )
+    expect(messages[0]?.content).toContainEqual({
+      type: "media",
+      mediaType: "video/mp4",
+      data: "data:video/mp4;base64,aGVsbG8=",
+      filename: "clip.mp4",
+      metadata: undefined,
+    })
+  })
+
   test("omits empty assistant turns", () => {
     const assistant = (value: string, content: SessionMessage.Assistant["content"]) =>
       SessionMessage.Assistant.make({
