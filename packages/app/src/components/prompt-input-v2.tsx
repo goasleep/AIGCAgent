@@ -383,7 +383,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       store: platform.draftStore?.putBlob,
     },
     view: {
-      add: { actions: media.actions },
+      add: { onAttach: () => media.open() },
       placeholder: designPlaceholder,
       get agent() {
         return props.controls.agents.visible && props.controls.agents.options.length > 0
