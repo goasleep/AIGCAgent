@@ -14,7 +14,7 @@ const media = (file: FileAttachment): ContentPart =>
   file.uri.startsWith("media://") && file.asset_id && file.path && file.mime.startsWith("video/")
     ? {
         type: "text",
-        text: `Video asset ${JSON.stringify(file.asset_id)} at project-relative path ${JSON.stringify(file.path)} (${file.mime}). Use media tools to inspect or process this file.`,
+        text: `Video asset ${JSON.stringify(file.asset_id)} at project-relative path ${JSON.stringify(file.path)} (${file.mime}). Call media_get with this asset id for dimensions and duration, media_probe on the path for stream details, and media_process to trim, transcode, or extract frames (the asset id works as a media_process input).`,
       }
     : {
         type: "media",

@@ -54,7 +54,14 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { MCP } from "@/mcp"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { McpCatalog } from "@/mcp/catalog"
-import { MediaGenerateImageTool, MediaGenerateVideoTool, MediaProbeTool, MediaProcessTool } from "./media"
+import {
+  MediaGenerateImageTool,
+  MediaGenerateVideoTool,
+  MediaGetTool,
+  MediaListTool,
+  MediaProbeTool,
+  MediaProcessTool,
+} from "./media"
 import { MediaFFmpeg } from "@/media/ffmpeg"
 import { MediaLibrary } from "@/media/library"
 import { MediaPreview } from "@/media/preview"
@@ -120,6 +127,8 @@ const layer = Layer.effect(
     const skilltool = yield* SkillTool
     const mediaProbe = yield* MediaProbeTool
     const mediaProcess = yield* MediaProcessTool
+    const mediaList = yield* MediaListTool
+    const mediaGet = yield* MediaGetTool
     const mediaGenerateImage = yield* MediaGenerateImageTool
     const mediaGenerateVideo = yield* MediaGenerateVideoTool
     const agent = yield* Agent.Service
@@ -230,6 +239,8 @@ const layer = Layer.effect(
           patch: Tool.init(patchtool),
           mediaProbe: Tool.init(mediaProbe),
           mediaProcess: Tool.init(mediaProcess),
+          mediaList: Tool.init(mediaList),
+          mediaGet: Tool.init(mediaGet),
           mediaGenerateImage: Tool.init(mediaGenerateImage),
           mediaGenerateVideo: Tool.init(mediaGenerateVideo),
           question: Tool.init(question),
@@ -257,6 +268,8 @@ const layer = Layer.effect(
             tool.patch,
             tool.mediaProbe,
             tool.mediaProcess,
+            tool.mediaList,
+            tool.mediaGet,
             tool.mediaGenerateImage,
             tool.mediaGenerateVideo,
             ...(tool.execute ? [tool.execute] : []),

@@ -3,7 +3,8 @@ import path from "path"
 import { copyFile, mkdir, rename, rm, stat, writeFile } from "fs/promises"
 import { createReadStream } from "fs"
 import { createHash } from "crypto"
-import { and, desc, eq, isNull, lt, or } from "drizzle-orm"
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm"
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Database } from "@opencode-ai/core/database/database"
 import { MediaAssetTable } from "@opencode-ai/core/media/sql"
@@ -64,6 +65,9 @@ export interface IngestInput {
 export interface ListInput {
   directory: string
   kind?: "image" | "video"
+  source?: Asset["source"]
+  /** 不区分大小写的子串匹配，作用于 prompt / model / params（含上传时的原始文件名） */
+  query?: string
   /** 上一页最后一项的 id（按 time_created 倒序翻页） */
   cursor?: string
   limit?: number
@@ -303,6 +307,13 @@ const layer = Layer.effect(
       const limit = Number.isInteger(input.limit) ? Math.max(1, Math.min(input.limit!, 200)) : 50
       const conditions = [eq(MediaAssetTable.project_id, project.id)]
       if (input.kind) conditions.push(eq(MediaAssetTable.kind, input.kind))
+      if (input.source) conditions.push(eq(MediaAssetTable.source, input.source))
+      if (input.query?.trim()) {
+        // SQLite like 对 ASCII 不区分大小写；escape 防止 prompt 里的 %/_ 被当通配符
+        const pattern = `%${input.query.trim().replace(/[\\%_]/g, "\\$&")}%`
+        const match = (column: AnySQLiteColumn) => sql`${column} like ${pattern} escape '\\'`
+        conditions.push(or(match(MediaAssetTable.prompt), match(MediaAssetTable.model), match(MediaAssetTable.params))!)
+      }
       if (input.cursor) {
         const cursorRow = yield* db.select().from(MediaAssetTable).where(eq(MediaAssetTable.id, input.cursor)).get()
         if (cursorRow?.project_id === project.id) {

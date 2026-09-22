@@ -168,15 +168,22 @@ export const mediaHandlers = HttpApiBuilder.group(MediaApi, "media", (handlers) 
               const directory = url.searchParams.get("directory")
               if (!directory) return badRequest("missing directory")
               const kind = url.searchParams.get("kind")
+              const source = url.searchParams.get("source")
+              const query = url.searchParams.get("query")
               const cursor = url.searchParams.get("cursor")
               const limit = url.searchParams.get("limit")
               if (kind && kind !== "image" && kind !== "video") return badRequest("invalid kind")
+              if (source && source !== "generate" && source !== "process" && source !== "upload") {
+                return badRequest("invalid source")
+              }
               if (limit !== null && (!Number.isInteger(Number(limit)) || Number(limit) < 1 || Number(limit) > 200)) {
                 return badRequest("limit must be an integer from 1 to 200")
               }
               const result = yield* library.list({
                 directory,
                 ...(kind === "image" || kind === "video" ? { kind } : {}),
+                ...(source === "generate" || source === "process" || source === "upload" ? { source } : {}),
+                ...(query ? { query } : {}),
                 ...(cursor ? { cursor } : {}),
                 ...(limit ? { limit: Number(limit) } : {}),
               })

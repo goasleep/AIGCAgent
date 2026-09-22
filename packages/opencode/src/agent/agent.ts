@@ -229,6 +229,8 @@ const layer = Layer.effect(
                 "*": "deny",
                 media_probe: "allow",
                 media_process: "allow",
+                media_list: "allow",
+                media_get: "allow",
                 media_generate_image: "allow",
                 media_generate_video: "allow",
                 read: "allow",

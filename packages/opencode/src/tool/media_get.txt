@@ -1,0 +1,1 @@
+Fetch one media library asset by id (med_...): full metadata plus the project-relative path (usable as media_process input or reference frame) and a serve URL. Use media_list first if you do not know the id.

@@ -18,6 +18,7 @@ import {
   type VideoRequest,
 } from "@/media/provider"
 import { mediaTmpDir, resolveInside } from "@/media/paths"
+import type { InstanceContext } from "@/project/instance-context"
 import { templates, type TemplateContext } from "@/media/templates"
 import { MediaPreview } from "@/media/preview"
 
@@ -97,16 +98,39 @@ async function downloadTo(url: string, target: string): Promise<void> {
 }
 
 const FRAME_MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg" }
+const REFERENCE_MIME = new Set(Object.values(FRAME_MIME))
 
-/** 读取项目内参考帧图片为 data URL，随生成请求一并提交给 provider */
-function frameDataUrl(directory: string, rel: string) {
+export interface MediaRef {
+  /** 绝对路径，ffmpeg / 参考图读取用 */
+  path: string
+  mime: string | null
+  asset: MediaLibrary.Asset | undefined
+}
+
+/**
+ * 解析素材引用：`med_` 开头按媒体库素材 id 解析（校验项目归属），其余按项目相对路径。
+ * 让 agent 能直接引用 media_list 返回的素材 id，而不必先知道磁盘路径。
+ */
+function resolveMediaRef(instance: InstanceContext, library: MediaLibrary.Interface, ref: string) {
   return Effect.gen(function* () {
-    const ext = path.extname(rel).toLowerCase()
-    const mime = FRAME_MIME[ext]
-    if (!mime) throw new Error(`参考帧仅支持 png/jpg: ${rel}`)
-    const file = resolveInside(directory, rel)
+    if (!ref.startsWith("med_")) {
+      return { path: resolveInside(instance.directory, ref), mime: null, asset: undefined }
+    }
+    const asset = yield* library.get(ref)
+    if (!asset || asset.project_id !== instance.project.id) {
+      throw new Error(`媒体库中不存在素材 ${ref}，可先用 media_list 查询；或改传项目相对路径`)
+    }
+    return { path: yield* library.absolute(instance.directory, asset), mime: asset.mime, asset }
+  })
+}
+
+/** 读取参考帧图片为 data URL，随生成请求一并提交给 provider */
+function frameDataUrl(ref: MediaRef) {
+  return Effect.gen(function* () {
+    const mime = ref.mime && REFERENCE_MIME.has(ref.mime) ? ref.mime : FRAME_MIME[path.extname(ref.path).toLowerCase()]
+    if (!mime) throw new Error(`参考帧仅支持 png/jpg`)
     const bytes = yield* Effect.tryPromise(() =>
-      readFile(file).then((value) => value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)),
+      readFile(ref.path).then((value) => value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)),
     )
     return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`
   })
@@ -121,7 +145,9 @@ const ProcessParameters = Schema.Struct({
     description:
       "Template name: transcode/trim/trim_exact/concat/extract_frames/watermark/make_gif/resize_image/thumbnail",
   }),
-  inputs: Schema.Array(Schema.String).annotate({ description: "Project-relative input paths (1–20)" }),
+  inputs: Schema.Array(Schema.String).annotate({
+    description: "Input media as project-relative paths or media library asset ids (med_...) (1–20)",
+  }),
   output: Schema.String.annotate({ description: "Project-relative output path" }),
   params: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)).annotate({
     description: "Template-specific parameters (see template descriptions); may include timeout_ms",
@@ -131,10 +157,12 @@ const ProcessParameters = Schema.Struct({
 const GenerateImageParameters = Schema.Struct({
   prompt: Schema.String.annotate({ description: "Image prompt" }),
   image: Schema.optional(Schema.String).annotate({
-    description: "Project-relative source image path (png/jpg) for editing; omit for text-to-image generation",
+    description:
+      "Source image for editing: media library asset id (med_...) or project-relative path (png/jpg); omit for text-to-image generation",
   }),
   mask: Schema.optional(Schema.String).annotate({
-    description: "Project-relative transparent mask path (png) for editing selected areas",
+    description:
+      "Transparent mask (png) for editing selected areas: media library asset id (med_...) or project-relative path",
   }),
   size: Schema.optional(
     Schema.String.annotate({
@@ -154,11 +182,11 @@ const GenerateVideoParameters = Schema.Struct({
   ratio: Schema.optional(Schema.Literals(["16:9", "9:16", "1:1"])),
   first_frame: Schema.optional(Schema.String).annotate({
     description:
-      "Project-relative image path (png/jpg) guiding the opening frame, for continuity with preceding footage",
+      "Image guiding the opening frame (media library asset id or project-relative png/jpg path), for continuity with preceding footage",
   }),
   last_frame: Schema.optional(Schema.String).annotate({
     description:
-      "Project-relative image path (png/jpg) guiding the closing frame, for continuity with following footage",
+      "Image guiding the closing frame (media library asset id or project-relative png/jpg path), for continuity with following footage",
   }),
   model: Schema.optional(Schema.String).annotate({
     description:
@@ -230,7 +258,8 @@ export const MediaProcessTool = Tool.define(
           const timeoutMs = Math.min(Number(timeout_ms ?? DEFAULT_KIND_TIMEOUT[template.kind]), HARD_TIMEOUT_MS)
           if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("Invalid timeout_ms")
 
-          const inputs = params.inputs.map((p) => resolveInside(instance.directory, p))
+          const resolvedInputs = yield* Effect.forEach(params.inputs, (ref) => resolveMediaRef(instance, library, ref))
+          const inputs = resolvedInputs.map((ref) => ref.path)
           const output = resolveInside(instance.directory, params.output)
           const tmpDir = mediaTmpDir(instance.directory)
           yield* Effect.tryPromise(() => mkdir(tmpDir, { recursive: true }))
@@ -325,13 +354,16 @@ export const MediaGenerateImageTool = Tool.define(
         ctx: Tool.Context,
       ): Effect.Effect<Tool.ExecuteResult<GenerateImageMetadata>, never, never> =>
         Effect.gen(function* () {
-          const directory = (yield* InstanceState.context).directory
+          const instance = yield* InstanceState.context
+          const directory = instance.directory
+          const image = params.image ? yield* resolveMediaRef(instance, library, params.image) : undefined
+          const mask = params.mask ? yield* resolveMediaRef(instance, library, params.mask) : undefined
           const req: ImageRequest = {
             prompt: params.prompt,
             size: normalizeImageSize(params.size),
             quality: params.quality ?? "high",
-            ...(params.image ? { image: yield* frameDataUrl(directory, params.image) } : {}),
-            ...(params.mask ? { mask: yield* frameDataUrl(directory, params.mask) } : {}),
+            ...(image ? { image: yield* frameDataUrl(image) } : {}),
+            ...(mask ? { mask: yield* frameDataUrl(mask) } : {}),
           }
           const media = (yield* config.get()).media
           const requestedModel = params.model ?? media?.image_model
@@ -404,13 +436,18 @@ export const MediaGenerateVideoTool = Tool.define(
         ctx: Tool.Context,
       ): Effect.Effect<Tool.ExecuteResult<GenerateVideoMetadata>, never, never> =>
         Effect.gen(function* () {
-          const directory = (yield* InstanceState.context).directory
+          const instance = yield* InstanceState.context
+          const directory = instance.directory
+          const firstFrame = params.first_frame
+            ? yield* resolveMediaRef(instance, library, params.first_frame)
+            : undefined
+          const lastFrame = params.last_frame ? yield* resolveMediaRef(instance, library, params.last_frame) : undefined
           const req: VideoRequest = {
             prompt: params.prompt,
             duration: params.duration ?? 5,
             ratio: params.ratio ?? "16:9",
-            ...(params.first_frame ? { first_frame: yield* frameDataUrl(directory, params.first_frame) } : {}),
-            ...(params.last_frame ? { last_frame: yield* frameDataUrl(directory, params.last_frame) } : {}),
+            ...(firstFrame ? { first_frame: yield* frameDataUrl(firstFrame) } : {}),
+            ...(lastFrame ? { last_frame: yield* frameDataUrl(lastFrame) } : {}),
           }
           const media = (yield* config.get()).media
           const requestedModel = params.model ?? media?.video_model ?? "seedance-2-0"
@@ -493,6 +530,111 @@ export const MediaGenerateVideoTool = Tool.define(
                 filename: baseName(asset.path),
               },
             ],
+          }
+        }).pipe(Effect.orDie),
+    }
+  }),
+)
+
+type ListMetadata = { count: number; next_cursor: string | null }
+
+function summarize(asset: MediaLibrary.Asset) {
+  return {
+    id: asset.id,
+    path: asset.path,
+    kind: asset.kind,
+    mime: asset.mime,
+    bytes: asset.bytes,
+    ...(asset.width !== null ? { width: asset.width, height: asset.height } : {}),
+    ...(asset.duration_ms !== null ? { duration_ms: asset.duration_ms } : {}),
+    source: asset.source,
+    ...(asset.model ? { model: asset.model } : {}),
+    ...(asset.prompt
+      ? { prompt: asset.prompt.length > 120 ? `${asset.prompt.slice(0, 117)}...` : asset.prompt }
+      : {}),
+    created: new Date(asset.time_created).toISOString(),
+  }
+}
+
+const ListParameters = Schema.Struct({
+  query: Schema.optional(Schema.String).annotate({
+    description:
+      "Case-insensitive substring matched against prompt, model, and original filename (for uploads); omit to list everything",
+  }),
+  kind: Schema.optional(Schema.Literals(["image", "video"])).annotate({ description: "Filter by media kind" }),
+  source: Schema.optional(Schema.Literals(["generate", "process", "upload"])).annotate({
+    description: "Filter by how the asset entered the library",
+  }),
+  limit: Schema.optional(Schema.Number).annotate({ description: "1–100 items per page, default 20" }),
+  cursor: Schema.optional(Schema.String).annotate({ description: "Pass next_cursor from the previous page" }),
+})
+
+export const MediaListTool = Tool.define(
+  "media_list",
+  Effect.gen(function* () {
+    const library = yield* MediaLibrary.Service
+    const description = yield* Effect.promise(() => readFile(new URL("./media_list.txt", import.meta.url), "utf8"))
+    return {
+      description,
+      parameters: ListParameters,
+      execute: (
+        params: Schema.Schema.Type<typeof ListParameters>,
+      ): Effect.Effect<Tool.ExecuteResult<ListMetadata>, never, never> =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          const result = yield* library.list({
+            directory: instance.directory,
+            ...(params.kind ? { kind: params.kind } : {}),
+            ...(params.source ? { source: params.source } : {}),
+            ...(params.query ? { query: params.query } : {}),
+            ...(params.cursor ? { cursor: params.cursor } : {}),
+            ...(params.limit ? { limit: params.limit } : {}),
+          })
+          const items = result.items.map(summarize)
+          return {
+            title: `Listed media (${items.length})`,
+            output: JSON.stringify({
+              count: items.length,
+              ...(result.next ? { next_cursor: result.next } : { next_cursor: null }),
+              items,
+            }),
+            metadata: { count: items.length, next_cursor: result.next ?? null },
+          }
+        }).pipe(Effect.orDie),
+    }
+  }),
+)
+
+const GetParameters = Schema.Struct({
+  id: Schema.String.annotate({ description: "Media asset id (med_...)" }),
+})
+
+export const MediaGetTool = Tool.define(
+  "media_get",
+  Effect.gen(function* () {
+    const library = yield* MediaLibrary.Service
+    const description = yield* Effect.promise(() => readFile(new URL("./media_get.txt", import.meta.url), "utf8"))
+    return {
+      description,
+      parameters: GetParameters,
+      execute: (
+        params: Schema.Schema.Type<typeof GetParameters>,
+      ): Effect.Effect<Tool.ExecuteResult<{ asset_id: string }>, never, never> =>
+        Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+          const asset = yield* library.get(params.id)
+          if (!asset || asset.project_id !== instance.project.id) {
+            throw new Error(`媒体库中不存在素材 ${params.id}，可先用 media_list 查询`)
+          }
+          return {
+            title: `Media ${asset.kind} ${baseName(asset.path)}`,
+            output: JSON.stringify({
+              ...summarize(asset),
+              prompt: asset.prompt,
+              params: asset.params,
+              content_url: contentUrl(instance.directory, asset.id),
+            }),
+            metadata: { asset_id: asset.id },
           }
         }).pipe(Effect.orDie),
     }
