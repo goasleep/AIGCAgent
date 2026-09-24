@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect"
 import path from "path"
 import { mkdir, readdir, readFile, rm, writeFile } from "fs/promises"
 import * as Tool from "./tool"
+import { Identifier } from "@/id/id"
 import { InstanceState } from "@/effect/instance-state"
 import { BackgroundJob } from "@/background/job"
 import { Config } from "@/config/config"
@@ -14,6 +15,7 @@ import {
   pollUntilDone,
   resolveProvider,
   type ImageRequest,
+  type JobStatus,
   type ProviderAuth,
   type VideoRequest,
 } from "@/media/provider"
@@ -468,7 +470,10 @@ export const MediaGenerateVideoTool = Tool.define(
           })
 
           const { jobId } = yield* provider.submitVideo(req)
+          // 预生成后台任务 id：run 内部要靠它回写进度元数据
+          const taskId = Identifier.ascending("job")
           const job = yield* jobs.start({
+            id: taskId,
             type: "media_generate_video",
             title: `Generating ${req.duration}s video (${provider.id})`,
             metadata: {
@@ -479,7 +484,18 @@ export const MediaGenerateVideoTool = Tool.define(
               provider_job_id: jobId,
             },
             run: Effect.gen(function* () {
-              const status = yield* pollUntilDone(provider, jobId)
+              const startedAt = Date.now()
+              const status = yield* pollUntilDone(provider, jobId, (poll) =>
+                jobs
+                  .update({
+                    id: taskId,
+                    metadata: {
+                      ...(poll.state === "queued" || poll.state === "running" ? { progress: poll.progress ?? null } : {}),
+                      elapsed_ms: Date.now() - startedAt,
+                    },
+                  })
+                  .pipe(Effect.asVoid),
+              )
               if (status.state !== "succeeded") {
                 return yield* new MediaProviderError({ detail: "video job did not succeed" })
               }

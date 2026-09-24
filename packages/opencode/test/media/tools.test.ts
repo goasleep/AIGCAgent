@@ -71,7 +71,7 @@ const upstream = Effect.acquireRelease(
           JSON.stringify(
             // Model a slow provider independently of when the client starts polling.
             Date.now() - state.submittedAt < 31_000
-              ? { status: "running" }
+              ? { status: "running", progress: 77 }
               : { status: "completed", url: `${url.origin}/result.mp4` },
           ),
         )
@@ -157,6 +157,40 @@ it.live(
       )
     }),
   60000,
+)
+
+it.live(
+  "reports provider polling progress into the background media job",
+  () =>
+    Effect.gen(function* () {
+      const provider = yield* upstream
+      yield* Effect.gen(function* () {
+        const info = yield* MediaGenerateVideoTool
+        const tool = yield* info.init()
+        const jobs = yield* BackgroundJob.Service
+        const fiber = yield* tool.execute({ prompt: "cat", model: "agnes" }, ctx).pipe(Effect.forkScoped)
+        const reported = yield* pollWithTimeout(
+          jobs.list().pipe(
+            Effect.map((items) =>
+              items.find(
+                (item) =>
+                  item.type === "media_generate_video" && typeof item.metadata?.progress === "number",
+              ),
+            ),
+          ),
+          "video job never reported progress",
+        )
+        expect(reported.metadata!.progress).toBe(77)
+        expect(typeof reported.metadata!.elapsed_ms).toBe("number")
+        yield* Fiber.interrupt(fiber)
+      }).pipe(
+        withTmpdirInstance({
+          git: true,
+          config: { media: { agnes_base_url: provider.url, agnes_api_key: "dedicated-media-test-key" } },
+        }),
+      )
+    }),
+  30000,
 )
 
 it.live(

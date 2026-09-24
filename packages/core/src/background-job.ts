@@ -75,6 +75,13 @@ export type ExtendInput = {
   run: Effect.Effect<string, unknown>
 }
 
+export type UpdateInput = {
+  id: string
+  title?: string
+  /** 与已有 metadata 浅合并；运行中的任务才能更新 */
+  metadata?: Record<string, unknown>
+}
+
 export type WaitInput = {
   id: string
   timeout?: number
@@ -90,6 +97,7 @@ export interface Interface {
   readonly get: (id: string) => Effect.Effect<Info | undefined>
   readonly start: (input: StartInput) => Effect.Effect<Info>
   readonly extend: (input: ExtendInput) => Effect.Effect<boolean>
+  readonly update: (input: UpdateInput) => Effect.Effect<Info | undefined>
   readonly wait: (input: WaitInput) => Effect.Effect<WaitResult>
   readonly waitForPromotion: (id: string) => Effect.Effect<Info>
   readonly promote: (id: string) => Effect.Effect<Info | undefined>
@@ -289,6 +297,23 @@ export const make = Effect.gen(function* () {
     )
   })
 
+  const update: Interface["update"] = Effect.fn("BackgroundJob.update")(function* (input) {
+    const result = yield* SynchronizedRef.modify(state.jobs, (jobs): readonly [{ info?: Info }, Map<string, Active>] => {
+      const job = jobs.get(input.id)
+      if (!job || job.info.status !== "running") return [{ info: job ? snapshot(job) : undefined }, jobs]
+      const next = {
+        ...job,
+        info: {
+          ...job.info,
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.metadata ? { metadata: { ...job.info.metadata, ...input.metadata } } : {}),
+        },
+      }
+      return [{ info: snapshot(next) }, new Map(jobs).set(input.id, next)]
+    })
+    return result.info
+  })
+
   const wait: Interface["wait"] = Effect.fn("BackgroundJob.wait")(function* (input) {
     const job = (yield* SynchronizedRef.get(state.jobs)).get(input.id)
     if (!job) return { timedOut: false }
@@ -357,7 +382,7 @@ export const make = Effect.gen(function* () {
     return result.info
   })
 
-  return Service.of({ list, get, start, extend, wait, waitForPromotion, promote, cancel })
+  return Service.of({ list, get, start, extend, update, wait, waitForPromotion, promote, cancel })
 })
 
 const layer = Layer.effect(Service, make)

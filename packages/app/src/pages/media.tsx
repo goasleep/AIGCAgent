@@ -9,6 +9,8 @@ import { readMediaResponse } from "@/utils/media-response"
 import { mediaContentURL } from "@/utils/media-url"
 import { legacySessionHref } from "@/utils/session-route"
 import { createMediaLibrary, type MediaKindFilter } from "@/utils/media-library"
+import { createMediaTasks, type MediaTask } from "@/utils/media-tasks"
+import { mediaModelsFor } from "@/components/media-models"
 
 export type { MediaKindFilter } from "@/utils/media-library"
 
@@ -65,6 +67,11 @@ export default function MediaPage() {
     kind: kind(),
     authorization: headers().Authorization,
   }))
+  const tasks = createMediaTasks(() => ({
+    url: sdk().url.replace(/\/+$/, ""),
+    directory: directory(),
+    authorization: headers().Authorization,
+  }))
   const source = library.source
   const items = library.items
   const next = library.next
@@ -107,6 +114,26 @@ export default function MediaPage() {
       window.addEventListener("focus", handler)
       onCleanup(() => window.removeEventListener("focus", handler))
     }),
+  )
+
+  // 生成任务完成出片后自动把新素材刷进库
+  const seenAssets = new Set<string>()
+  createEffect(
+    on(
+      () =>
+        tasks
+          .tasks()
+          .filter((task) => task.status === "completed" && task.asset_id)
+          .map((task) => task.asset_id!)
+          .join(","),
+      (ids) => {
+        const fresh = ids.split(",").filter((id) => id && !seenAssets.has(id))
+        if (fresh.length === 0) return
+        fresh.forEach((id) => seenAssets.add(id))
+        void library.refetch(true)
+        if (!stats.loading) void refetchStats()
+      },
+    ),
   )
 
   const toggle = (id: string) => {
@@ -157,6 +184,10 @@ export default function MediaPage() {
     void sendToSession(`${t("media.use.prompt")}\n${list}`).catch((error) =>
       setNotice(error instanceof Error ? error.message : String(error)),
     )
+  }
+
+  const cancelTask = (id: string) => {
+    tasks.cancel(id).catch(() => setNotice(t("media.task.cancel.failed")))
   }
 
   const filterTabs: Array<{ value: MediaKindFilter; label: string }> = [
@@ -230,6 +261,48 @@ export default function MediaPage() {
             void sendToSession(text).catch((error) => setNotice(error instanceof Error ? error.message : String(error)))
           }}
         />
+      </Show>
+
+      <Show when={tasks.tasks().length > 0}>
+        <div role="status" aria-live="polite" class="flex flex-col gap-1.5 border-b border-border-weak-base px-4 py-2">
+          <For each={tasks.tasks()}>
+            {(task) => (
+              <div class="flex items-center gap-3 text-13-regular">
+                <span class="rounded-md bg-background-stronger px-2 py-0.5 text-11-regular text-text-weak">
+                  {t(
+                    task.kind === "image"
+                      ? "media.task.kind.image"
+                      : task.kind === "video"
+                        ? "media.task.kind.video"
+                        : "media.task.kind.process",
+                  )}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-text-base" title={task.error ?? task.title}>
+                  {task.title ?? t("media.task.fallback")}
+                  <Show when={task.status === "running"}>
+                    <span class="text-text-weak">
+                      {typeof task.progress === "number"
+                        ? ` · ${Math.round(task.progress)}%`
+                        : ` · ${formatElapsed(task.started_at)}`}
+                    </span>
+                  </Show>
+                </span>
+                <Show
+                  when={task.status === "running"}
+                  fallback={<TaskStatus task={task} />}
+                >
+                  <button
+                    type="button"
+                    class="rounded-lg border border-border-weak-base px-2.5 py-1 text-12-regular text-text-base hover:bg-background-stronger"
+                    onClick={() => cancelTask(task.id)}
+                  >
+                    {t("media.task.cancel")}
+                  </button>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
       </Show>
 
       <Show when={notice()}>
@@ -355,21 +428,35 @@ function GeneratePanel(props: { onSubmit: (text: string) => void }) {
   const t = language.t
   const [kind, setKind] = createSignal<"image" | "video">("image")
   const [prompt, setPrompt] = createSignal("")
+  const [model, setModel] = createSignal("")
   const [size, setSize] = createSignal("1024x1024")
   const [quality, setQuality] = createSignal<"low" | "medium" | "high">("high")
   const [duration, setDuration] = createSignal(5)
   const [ratio, setRatio] = createSignal<"16:9" | "9:16" | "1:1">("16:9")
+
+  const models = createMemo(() => mediaModelsFor(kind()))
+  // 切换图/视频后，已选模型不适用于新类型时回落到「默认」
+  createEffect(
+    on(kind, () => {
+      if (model() && !models().some((option) => option.value === model())) setModel("")
+    }),
+  )
 
   const estimate = createMemo(() => IMAGE_COST_USD[`${quality()}:${size()}`] ?? null)
 
   const submit = () => {
     const text = prompt().trim()
     if (!text) return
+    const suffix = model() ? t("media.generate.model.suffix", { model: model() }) : ""
     if (kind() === "image") {
-      props.onSubmit(t("media.generate.image.prompt", { prompt: text, size: size(), quality: quality() }))
+      props.onSubmit(
+        t("media.generate.image.prompt", { prompt: text, size: size(), quality: quality() }) + suffix,
+      )
       return
     }
-    props.onSubmit(t("media.generate.video.prompt", { prompt: text, duration: String(duration()), ratio: ratio() }))
+    props.onSubmit(
+      t("media.generate.video.prompt", { prompt: text, duration: String(duration()), ratio: ratio() }) + suffix,
+    )
   }
 
   const selectClass =
@@ -378,6 +465,21 @@ function GeneratePanel(props: { onSubmit: (text: string) => void }) {
   return (
     <div class="flex flex-col gap-3 border-b border-border-weak-base bg-background-stronger/40 px-4 py-4">
       <div class="flex items-center gap-2">
+        <For each={["image", "video"] as const}>
+          {(value) => (
+            <button
+              type="button"
+              class="rounded-md px-3 py-1 text-13-regular"
+              classList={{
+                "bg-background-base text-text-strong shadow-sm": kind() === value,
+                "text-text-weak hover:text-text-base": kind() !== value,
+              }}
+              onClick={() => setKind(value)}
+            >
+              {t(value === "image" ? "media.filter.image" : "media.filter.video")}
+            </button>
+          )}
+        </For>
         <For each={["image", "video"] as const}>
           {(value) => (
             <button
@@ -402,6 +504,13 @@ function GeneratePanel(props: { onSubmit: (text: string) => void }) {
         onInput={(event) => setPrompt(event.currentTarget.value)}
       />
       <div class="flex flex-wrap items-center gap-3">
+        <label class="flex items-center gap-2 text-13-regular text-text-weak">
+          {t("media.generate.model")}
+          <select class={selectClass} value={model()} onChange={(e) => setModel(e.currentTarget.value)}>
+            <option value="">{t("media.generate.model.default")}</option>
+            <For each={models()}>{(option) => <option value={option.value}>{option.label}</option>}</For>
+          </select>
+        </label>
         <Show
           when={kind() === "image"}
           fallback={
@@ -465,6 +574,31 @@ function GeneratePanel(props: { onSubmit: (text: string) => void }) {
       </div>
     </div>
   )
+}
+
+function TaskStatus(props: { task: MediaTask }) {
+  const t = useLanguage().t
+  return (
+    <span
+      class="text-12-regular"
+      classList={{
+        "text-text-weak": props.task.status === "completed" || props.task.status === "cancelled",
+        "text-red-base": props.task.status === "error",
+      }}
+    >
+      {t(
+        props.task.status === "completed"
+          ? "media.task.done"
+          : props.task.status === "error"
+            ? "media.task.failed"
+            : "media.task.cancelled",
+      )}
+    </span>
+  )
+}
+
+function formatElapsed(startedAt: number): string {
+  return `${Math.max(0, Math.round((Date.now() - startedAt) / 1000))}s`
 }
 
 function formatBytes(bytes: number): string {

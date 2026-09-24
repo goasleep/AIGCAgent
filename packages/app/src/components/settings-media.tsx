@@ -9,78 +9,10 @@ import { useLanguage } from "@/context/language"
 import { useServerSDK, type ServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 import { showToast } from "@/utils/toast"
+import { mediaProviders, type MediaMode } from "./media-models"
 import { createMediaSettingsController, type MediaSettings } from "./settings-media-state"
 
-type MediaMode = "image" | "video"
-type ModelOption = { id: string; label: string; value: string }
-type MediaProvider = {
-  id: string
-  name: string
-  url?: keyof MediaSettings
-  key: keyof MediaSettings
-  imageModels: readonly ModelOption[]
-  videoModels: readonly ModelOption[]
-}
-
-const providers: readonly MediaProvider[] = [
-  {
-    id: "openai",
-    name: "OpenAI",
-    url: "openai_base_url",
-    key: "openai_api_key",
-    imageModels: [{ id: "openai:gpt-image-2", label: "GPT Image 2", value: "gpt-image-2" }],
-    videoModels: [],
-  },
-  {
-    id: "ark",
-    name: "Ark",
-    url: "ark_base_url",
-    key: "ark_api_key",
-    imageModels: [],
-    videoModels: [
-      { id: "ark:seedance-2-0", label: "Seedance 2.0", value: "seedance-2-0" },
-      { id: "ark:seedance-2-5", label: "Seedance 2.5", value: "seedance-2-5" },
-    ],
-  },
-  {
-    id: "dashscope",
-    name: "DashScope",
-    url: "dashscope_base_url",
-    key: "dashscope_api_key",
-    imageModels: [],
-    videoModels: [
-      { id: "dashscope:wan2.7", label: "Wan 2.7", value: "wan2.7" },
-      { id: "dashscope:wan3", label: "Wan 3", value: "wan3" },
-    ],
-  },
-  {
-    id: "minimax",
-    name: "MiniMax",
-    url: "minimax_base_url",
-    key: "minimax_api_key",
-    imageModels: [],
-    videoModels: [
-      { id: "minimax:h3", label: "H3", value: "MiniMax-H3" },
-      { id: "minimax:hailuo", label: "Hailuo", value: "hailuo" },
-    ],
-  },
-  {
-    id: "agnes",
-    name: "Agnes",
-    url: "agnes_base_url",
-    key: "agnes_api_key",
-    imageModels: [
-      { id: "agnes:image", label: "Image", value: "agnes-image" },
-      { id: "agnes:image-2.1-flash", label: "Image 2.1 Flash", value: "agnes-image-2.1-flash" },
-      { id: "agnes:image-2.5-flash", label: "Image 2.5 Flash", value: "agnes-image-2.5-flash" },
-    ],
-    videoModels: [
-      { id: "agnes:video", label: "Video", value: "agnes-video" },
-      { id: "agnes:video-v2.0", label: "Video V2.0", value: "agnes-video-v2.0" },
-      { id: "agnes:video-2.5-flash", label: "Video 2.5 Flash", value: "agnes-video-2.5-flash" },
-    ],
-  },
-]
+const providers = mediaProviders
 
 export const SettingsMedia: Component = () => {
   const sdk = useServerSDK()

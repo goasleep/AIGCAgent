@@ -10,6 +10,7 @@ export {
   type Interface,
   type StartInput,
   type Status,
+  type UpdateInput,
   type WaitInput,
   type WaitResult,
 } from "@opencode-ai/core/background-job"
@@ -24,6 +25,7 @@ const layer = Layer.effect(
       get: (id) => InstanceState.useEffect(state, (jobs) => jobs.get(id)),
       start: (input) => InstanceState.useEffect(state, (jobs) => jobs.start(input)),
       extend: (input) => InstanceState.useEffect(state, (jobs) => jobs.extend(input)),
+      update: (input) => InstanceState.useEffect(state, (jobs) => jobs.update(input)),
       wait: (input) => InstanceState.useEffect(state, (jobs) => jobs.wait(input)),
       waitForPromotion: (id) => InstanceState.useEffect(state, (jobs) => jobs.waitForPromotion(id)),
       promote: (id) => InstanceState.useEffect(state, (jobs) => jobs.promote(id)),

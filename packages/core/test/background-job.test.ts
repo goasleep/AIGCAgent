@@ -31,6 +31,37 @@ describe("BackgroundJob", () => {
     }).pipe(Effect.provide(jobsLayer)),
   )
 
+  it.live("merges metadata into running jobs and freezes it once settled", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const latch = yield* Deferred.make<void>()
+      const job = yield* jobs.start({
+        type: "media_generate_video",
+        metadata: { prompt: "cat" },
+        run: Deferred.await(latch).pipe(Effect.as("done")),
+      })
+
+      yield* jobs.update({ id: job.id, metadata: { progress: 42, elapsed_ms: 1000 } })
+      expect(yield* jobs.get(job.id)).toMatchObject({
+        status: "running",
+        metadata: { prompt: "cat", progress: 42, elapsed_ms: 1000 },
+      })
+
+      yield* jobs.update({ id: job.id, metadata: { progress: 90 } })
+      expect((yield* jobs.get(job.id))?.metadata).toMatchObject({ progress: 90 })
+
+      yield* Deferred.succeed(latch, undefined)
+      expect(yield* jobs.wait({ id: job.id })).toMatchObject({
+        timedOut: false,
+        info: { status: "completed", output: "done", metadata: { progress: 90 } },
+      })
+
+      // 已结束的任务不再接受更新，但调用本身仍返回当前状态
+      yield* jobs.update({ id: job.id, metadata: { progress: 1 } })
+      expect((yield* jobs.get(job.id))?.metadata).toMatchObject({ progress: 90 })
+    }).pipe(Effect.provide(jobsLayer)),
+  )
+
   it.live("publishes jobs before starting immediately settling work", () =>
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
